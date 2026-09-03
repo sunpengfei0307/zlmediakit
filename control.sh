@@ -22,14 +22,15 @@ CLIENT_BUILD=""
 usage() {
   cat <<'EOF'
 用法:
-  ./control.sh zlm-server  start|stop|restart|reload|status
-  ./control.sh zlm-client  start|stop|restart|status
+  ./control.sh zlm-server  start|stop|restart|reload|status|update
+  ./control.sh zlm-client  start|stop|restart|status|update
   ./control.sh zlm         start|stop|restart|reload|status|update
 
 正式线上运行时只使用下列文件和目录:
   /data/zlm/bin/zlm-server  /data/zlm/bin/zlm-client
   /data/zlm/cfg/zlm-server.ini  /data/zlm/cfg/zlm-client.toml
-update 会先停掉已有服务，再编译/拷贝到上述目录后拉起。
+update 会先停掉对应服务，再编译/拷贝到上述目录后拉起。
+  zlm-server / zlm-client 只更新自己；zlm 两者一起更新。
 systemd Restart=always：只有 control.sh stop 才停住；kill/崩溃会再拉起。
 EOF
 }
@@ -172,6 +173,7 @@ install_cfg_if_absent() {
 find_server_bin() {
   local c
   for c in \
+    "${REPO}/zlm-server/zlm-server" \
     "${REPO}/zlm-server/MediaServer" \
     "${REPO}/zlm-server/ZLMediaKit/release/linux/Release/MediaServer"; do
     if [[ -x "$c" ]]; then
@@ -214,15 +216,13 @@ open(dest, "w", encoding="utf-8", newline="\n").write(text)
 PY
 }
 
-publish_runtime() {
-  local src_bin src_ini src_toml src_pem tmp_toml
-  log "publish_runtime -> ${BIN} ${CFG}"
+publish_server() {
+  local src_bin src_ini src_pem
+  log "publish_server -> ${SERVER_BIN}"
   ensure_dirs
-  src_bin="$(find_server_bin)" || die "未找到已编译的 zlm-server（MediaServer），请先 update"
+  src_bin="$(find_server_bin)" || die "未找到已编译的 zlm-server（MediaServer），请先 ./control.sh zlm-server update"
   src_ini="${REPO}/zlm-server/config.ini"
-  src_toml="${REPO}/zlm-client/core/config/config.toml"
   [[ -f "$src_ini" ]] || die "缺少 ${src_ini}"
-  [[ -f "$src_toml" ]] || die "缺少 ${src_toml}"
 
   install_file "$src_bin" "$SERVER_BIN" "755"
   src_pem="${REPO}/zlm-server/default.pem"
@@ -230,6 +230,15 @@ publish_runtime() {
     install_file "$src_pem" "${BIN}/default.pem" "644"
   fi
   install_cfg_if_absent "$src_ini" "$SERVER_INI"
+  log "已发布 ${SERVER_BIN}"
+}
+
+publish_client() {
+  local src_toml tmp_toml
+  log "publish_client -> ${CLIENT_BIN}"
+  ensure_dirs
+  src_toml="${REPO}/zlm-client/core/config/config.toml"
+  [[ -f "$src_toml" ]] || die "缺少 ${src_toml}"
 
   if as_root test -f "$CLIENT_TOML"; then
     log "保留已有配置 ${CLIENT_TOML}"
@@ -245,14 +254,19 @@ publish_runtime() {
   elif [[ -x "$CLIENT_BIN" ]]; then
     log "沿用已有 ${CLIENT_BIN}"
   else
-    die "未找到已编译的 zlm-client，请先 update"
+    die "未找到已编译的 zlm-client，请先 ./control.sh zlm-client update"
   fi
-  log "已发布 ${SERVER_BIN} ${CLIENT_BIN}"
+  log "已发布 ${CLIENT_BIN}"
+}
+
+publish_runtime() {
+  publish_server
+  publish_client
 }
 
 render_unit() {
   local name=$1
-  local src="${REPO}/zlm-client/deploy/systemd/${name}.service.in"
+  local src="${REPO}/thr3parts/systemd/${name}.service.in"
   local dest="${UNIT_DIR}/${name}.service"
   local tmp
   [[ -f "$src" ]] || die "缺少 unit 模板 ${src}"
@@ -319,7 +333,7 @@ unit_is_active() {
 
 do_start() {
   local name=$1
-  [[ -x "${BIN}/${name}" ]] || die "缺少可执行文件 ${BIN}/${name}，请先 ./control.sh zlm update"
+  [[ -x "${BIN}/${name}" ]] || die "缺少可执行文件 ${BIN}/${name}，请先 ./control.sh ${name} update"
   install_units
   sysctl_run reset-failed "${name}.service" 2>/dev/null || true
   sysctl_run enable "${name}.service" >/dev/null
@@ -395,6 +409,13 @@ cmd_zlm_server() {
       ;;
     reload) do_reload_server ;;
     status) do_status "$SERVER_UNIT" ;;
+    update)
+      do_stop "$SERVER_UNIT"
+      build_server
+      publish_server
+      do_start "$SERVER_UNIT"
+      wait_server_api || log "WARN: zlm-server 已拉起但 API 暂未就绪"
+      ;;
     *)
       usage
       exit 2
@@ -420,6 +441,14 @@ cmd_zlm_client() {
       do_restart "$CLIENT_UNIT"
       ;;
     status) do_status "$CLIENT_UNIT" ;;
+    update)
+      retire_snapd
+      do_stop "$CLIENT_UNIT"
+      build_client
+      publish_client
+      retire_snapd
+      do_start "$CLIENT_UNIT"
+      ;;
     reload)
       die "zlm-client 不支持 reload，请 restart"
       ;;
