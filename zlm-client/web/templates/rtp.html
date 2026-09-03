@@ -1,0 +1,232 @@
+{{define "rtp-panels"}}
+<section class="cards source-tasks proto-workspace">
+  <article class="card proto-guide" aria-labelledby="rtp-how">
+    <h3 id="rtp-how">怎么用</h3>
+    <ol class="proto-steps">
+      <li><b>1. 建接收</b>创建监听端口，让国标设备把 RTP 打过来；流以 app / stream_id 出现在直播管理。</li>
+      <li><b>2. 需要时再连</b>TCP 主动模式：先创建接收，再填对端主机和端口点「连接 TCP 服务端」。</li>
+      <li><b>3. 发送或对讲</b>把本机已有流按 ES / PS / TS 推到上级；国标级联常用 PS。对讲要求发送流和接收流使用相同 Vhost / App。</li>
+    </ol>
+    {{if not .RTPReady}}<p class="status-off" role="status">当前未启用 RTP / GB28181。请在配置管理将 <code>rtp_proxy.port</code> 设为非 0，并确认 ZLM 编译了 ENABLE_RTPPROXY。下面选项已禁用。</p>{{end}}
+  </article>
+  <fieldset class="proto-lock" {{if not .RTPReady}}disabled{{end}}>
+  <div class="ops-split proto-split">
+  <article class="card source-card rtp-pane proto-zone">
+    <div class="source-card-head proto-zone-head">
+      <div>
+        <p class="proto-kicker">接收区</p>
+        <h3>RTP接收服务</h3>
+        <span class="muted">创建监听端口，接收设备 RTP；TCP 主动模式需创建后再连接目标。以下 API 仅在 ZLM 编译启用 ENABLE_RTPPROXY 时可用</span>
+      </div>
+      <span class="chip">{{len .RTP.Receivers.Items}} 项</span>
+    </div>
+    {{if .RTP.Receivers.Error}}<p class="status-off" role="status">接收服务读取失败：{{.RTP.Receivers.Error}}</p>{{end}}
+
+    <div class="table-wrap proto-table">
+      <table class="js-grid">
+        <thead><tr><th>Vhost / App / Stream</th><th>端口</th><th>SSRC</th><th>模式</th><th>对端 / 本地</th><th>详情</th><th>逐项操作</th></tr></thead>
+        <tbody>
+        {{range .RTP.Receivers.Items}}
+          <tr>
+            <td><code>{{index . "vhost"}} / {{index . "app"}} / {{index . "stream_id"}}</code></td>
+            <td>{{index . "port"}}</td><td>{{index . "ssrc"}}</td><td>TCP {{index . "tcp_mode"}} · Track {{index . "only_track"}}</td>
+            <td>{{index . "peer_ip"}}:{{index . "peer_port"}} / {{index . "local_ip"}}:{{index . "local_port"}}</td>
+            <td>{{if index . "_error"}}<span class="status-off">{{index . "_error"}}</span>{{else if index . "exist"}}<span class="status-on">流已建立</span>{{else}}<span class="muted">监听中</span>{{end}}</td>
+            <td>
+              <div class="rtp-row-actions proto-row-ops" role="group" aria-label="RTP 接收服务 {{index . "stream_id"}} 操作">
+                <form method="post" action="/rtp/close" hx-post="/rtp/close" hx-target="#content" hx-confirm="确认关闭 RTP 接收服务 {{index . "stream_id"}}？hit=0 将按失败反馈。" aria-label="关闭 RTP 接收服务 {{index . "stream_id"}}">
+                  <input type="hidden" name="vhost" value="{{index . "vhost"}}"><input type="hidden" name="app" value="{{index . "app"}}"><input type="hidden" name="stream_id" value="{{index . "stream_id"}}">
+                  <button class="ghost" type="submit" aria-label="关闭 RTP 接收服务 {{index . "stream_id"}}">关闭</button>
+                </form>
+                <form method="post" action="/rtp/update-ssrc" hx-post="/rtp/update-ssrc" hx-target="#content" hx-confirm="确认更新 {{index . "stream_id"}} 的 SSRC 过滤值？" aria-label="更新 {{index . "stream_id"}} 的 SSRC">
+                  <input type="hidden" name="vhost" value="{{index . "vhost"}}"><input type="hidden" name="app" value="{{index . "app"}}"><input type="hidden" name="stream_id" value="{{index . "stream_id"}}">
+                  <input name="ssrc" inputmode="numeric" required aria-label="更新 {{index . "stream_id"}} 的 SSRC" placeholder="新 SSRC">
+                  <button class="ghost" type="submit" aria-label="提交 {{index . "stream_id"}} 的 SSRC">更新 SSRC</button>
+                </form>
+                <form method="post" action="/rtp/pause-check" hx-post="/rtp/pause-check" hx-target="#content" hx-confirm="确认暂停 {{index . "stream_id"}} 的 RTP 超时检查？" aria-label="暂停 {{index . "stream_id"}} 的超时检查">
+                  <input type="hidden" name="vhost" value="{{index . "vhost"}}"><input type="hidden" name="app" value="{{index . "app"}}"><input type="hidden" name="stream_id" value="{{index . "stream_id"}}">
+                  <input name="pause_seconds" type="number" min="1" max="86400" aria-label="{{index . "stream_id"}} 自动恢复秒数" placeholder="恢复秒数">
+                  <button class="ghost" type="submit" aria-label="暂停 {{index . "stream_id"}} 的超时检查">暂停检测</button>
+                </form>
+                <form method="post" action="/rtp/resume-check" hx-post="/rtp/resume-check" hx-target="#content" hx-confirm="确认立即恢复 {{index . "stream_id"}} 的 RTP 超时检查？" aria-label="恢复 {{index . "stream_id"}} 的超时检查">
+                  <input type="hidden" name="vhost" value="{{index . "vhost"}}"><input type="hidden" name="app" value="{{index . "app"}}"><input type="hidden" name="stream_id" value="{{index . "stream_id"}}">
+                  <button class="ghost" type="submit" aria-label="恢复 {{index . "stream_id"}} 的超时检查">恢复检测</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        {{else}}<tr><td colspan="7" class="muted">暂无 RTP 接收服务。先在下方创建监听，再让设备推流。</td></tr>{{end}}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="proto-ops">
+      <section class="proto-op">
+        <div class="proto-op-head"><strong>创建单流接收</strong><span>一台设备对应一个端口和一个 stream_id</span></div>
+        <form method="post" action="/rtp/open" hx-post="/rtp/open" hx-target="#content" hx-confirm="确认创建单流 RTP 接收服务？" class="form-grid">
+          <label class="field" for="rtp-open-stream"><span>流 ID stream_id</span><input id="rtp-open-stream" name="stream_id" required></label>
+          <label class="field" for="rtp-open-port"><span>监听端口（0 为随机）</span><input id="rtp-open-port" name="port" type="number" min="0" max="65535" value="0" required></label>
+          <label class="field" for="rtp-open-tcp"><span>传输模式</span><select id="rtp-open-tcp" name="tcp_mode"><option value="0">UDP</option><option value="1">TCP 被动</option><option value="2">TCP 主动</option></select></label>
+          <label class="field" for="rtp-open-app"><span>应用 app（默认 rtp）</span><input id="rtp-open-app" name="app" value="rtp"></label>
+          <label class="field" for="rtp-open-vhost"><span>Vhost</span><input id="rtp-open-vhost" name="vhost" value="__defaultVhost__" required></label>
+          <details class="proto-more field-wide">
+            <summary>更多参数</summary>
+            <div class="proto-more-grid">
+              <label class="field" for="rtp-open-ip"><span>本地 IP（仅 IP）</span><input id="rtp-open-ip" name="local_ip" placeholder="0.0.0.0"></label>
+              <label class="field" for="rtp-open-track"><span>轨道限制</span><select id="rtp-open-track" name="only_track"><option value="0">音视频</option><option value="1">仅音频</option><option value="2">仅视频</option></select></label>
+              <label class="field" for="rtp-open-reuse"><span>复用端口</span><select id="rtp-open-reuse" name="re_use_port"><option value="0">0 · 否</option><option value="1">1 · 是</option></select></label>
+              <label class="field" for="rtp-open-ssrc"><span>过滤 SSRC（十进制，可空）</span><input id="rtp-open-ssrc" name="ssrc" inputmode="numeric"></label>
+            </div>
+          </details>
+          <div class="source-form-action"><button class="ghost ghost-primary" type="submit">创建单流接收</button></div>
+        </form>
+      </section>
+
+      <section class="proto-op">
+        <div class="proto-op-head"><strong>创建多路复用接收</strong><span>同一端口按 SSRC 区分多路；国标汇聚常用</span></div>
+        <form method="post" action="/rtp/open-multiplex" hx-post="/rtp/open-multiplex" hx-target="#content" hx-confirm="确认创建多路复用 RTP 接收服务？同一端口将按 SSRC 复用。" class="form-grid">
+          <label class="field" for="rtp-mux-stream"><span>基础流 ID stream_id</span><input id="rtp-mux-stream" name="stream_id" required></label>
+          <label class="field" for="rtp-mux-port"><span>监听端口（0 为随机）</span><input id="rtp-mux-port" name="port" type="number" min="0" max="65535" value="0" required></label>
+          <label class="field" for="rtp-mux-tcp"><span>TCP 监听</span><select id="rtp-mux-tcp" name="tcp_mode"><option value="0">0 · 不启用</option><option value="1">1 · 启用</option></select></label>
+          <label class="field" for="rtp-mux-app"><span>应用 app（默认 rtp）</span><input id="rtp-mux-app" name="app" value="rtp"></label>
+          <label class="field" for="rtp-mux-vhost"><span>Vhost</span><input id="rtp-mux-vhost" name="vhost" value="__defaultVhost__" required></label>
+          <details class="proto-more field-wide">
+            <summary>更多参数</summary>
+            <div class="proto-more-grid">
+              <label class="field" for="rtp-mux-ip"><span>本地 IP（默认 ::）</span><input id="rtp-mux-ip" name="local_ip" value="::"></label>
+              <label class="field" for="rtp-mux-track"><span>轨道限制</span><select id="rtp-mux-track" name="only_track"><option value="0">音视频</option><option value="1">仅音频</option><option value="2">仅视频</option></select></label>
+            </div>
+          </details>
+          <div class="source-form-action"><button class="ghost ghost-primary" type="submit">创建多路复用接收</button></div>
+        </form>
+      </section>
+
+      <section class="proto-op">
+        <div class="proto-op-head"><strong>连接 TCP 服务端</strong><span>仅 TCP 主动模式：本机去连设备或上级</span></div>
+        <form method="post" action="/rtp/connect" hx-post="/rtp/connect" hx-target="#content" hx-confirm="确认让 TCP 主动模式接收服务连接所填主机与端口？请再次核对目标。" class="form-grid">
+          <label class="field" for="rtp-connect-stream"><span>已创建的流 ID</span><input id="rtp-connect-stream" name="stream_id" required></label>
+          <label class="field" for="rtp-connect-host"><span>目标主机 / IP（不得填 URL）</span><input id="rtp-connect-host" name="dst_url" required></label>
+          <label class="field" for="rtp-connect-port"><span>目标端口（1..65535）</span><input id="rtp-connect-port" name="dst_port" type="number" min="1" max="65535" required></label>
+          <label class="field" for="rtp-connect-app"><span>应用 app</span><input id="rtp-connect-app" name="app" value="rtp"></label>
+          <label class="field" for="rtp-connect-vhost"><span>Vhost</span><input id="rtp-connect-vhost" name="vhost" value="__defaultVhost__" required></label>
+          <div class="source-form-action"><button class="ghost ghost-primary" type="submit">连接 TCP 服务端</button></div>
+        </form>
+      </section>
+    </div>
+  </article>
+
+  <article class="card source-card rtp-pane proto-zone">
+    <div class="source-card-head proto-zone-head">
+      <div>
+        <p class="proto-kicker">发送区</p>
+        <h3>RTP发送任务</h3>
+        <span class="muted">把当前节点媒体流按 ES / PS / TS 封装发送；主动发送会持续访问所填目标</span>
+      </div>
+      <span class="chip">{{len .RTP.Senders.Items}} 项</span>
+    </div>
+    <form method="get" action="/protocols" hx-get="/protocols" hx-target="#content" hx-push-url="true" class="form-grid proto-query">
+      <input type="hidden" name="tab" value="rtp">
+      <label class="field" for="rtp-query-vhost"><span>查询 Vhost</span><input id="rtp-query-vhost" name="vhost" value="{{.QueryVhost}}" required></label>
+      <label class="field" for="rtp-query-app"><span>查询 App</span><input id="rtp-query-app" name="app" value="{{.QueryApp}}" required></label>
+      <label class="field" for="rtp-query-stream"><span>查询 Stream</span><input id="rtp-query-stream" name="stream" value="{{.QueryStream}}" required></label>
+      <div class="source-form-action"><button class="ghost" type="submit">查询发送任务</button></div>
+    </form>
+    {{if .RTP.Senders.Error}}<p class="status-off" role="status">发送任务读取失败：{{.RTP.Senders.Error}}</p>{{end}}
+    <div class="table-wrap proto-table">
+      <table class="js-grid">
+        <thead><tr><th>媒体流</th><th>SSRC</th><th>发送速率</th><th>累计字节</th></tr></thead>
+        <tbody>
+        {{range .RTP.Senders.Items}}<tr><td><code>{{index . "vhost"}} / {{index . "app"}} / {{index . "stream"}}</code></td><td>{{index . "ssrc"}}</td>{{if index . "_stats_unavailable"}}<td colspan="2" class="muted" role="status">{{index . "_stats_note"}}</td>{{else}}<td>{{index . "bytesSpeed"}}</td><td>{{index . "totalBytes"}}</td>{{end}}</tr>
+        {{else}}<tr><td colspan="4" class="muted">输入 App / Stream 查询；源码按单个媒体源列出 SSRC</td></tr>{{end}}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="proto-ops">
+      <section class="proto-op">
+        <div class="proto-op-head"><strong>主动发送</strong><span>本机连到目标主机；请核对网络地址</span></div>
+        <form method="post" action="/rtp/start-send" hx-post="/rtp/start-send" hx-target="#content" hx-confirm="确认把指定媒体流主动发送到所填主机与端口？请核对网络目标和传输模式。" class="form-grid">
+          <label class="field" for="rtp-send-app"><span>App</span><input id="rtp-send-app" name="app" required></label>
+          <label class="field" for="rtp-send-stream"><span>Stream</span><input id="rtp-send-stream" name="stream" required></label>
+          <label class="field" for="rtp-send-ssrc"><span>SSRC（十进制）</span><input id="rtp-send-ssrc" name="ssrc" inputmode="numeric" required></label>
+          <label class="field" for="rtp-send-dst"><span>目标主机 / IP（不得填 URL）</span><input id="rtp-send-dst" name="dst_url" required></label>
+          <label class="field" for="rtp-send-port"><span>目标端口</span><input id="rtp-send-port" name="dst_port" type="number" min="1" max="65535" required></label>
+          <label class="field" for="rtp-send-vhost"><span>Vhost</span><input id="rtp-send-vhost" name="vhost" value="__defaultVhost__" required></label>
+          <details class="proto-more field-wide">
+            <summary>更多参数</summary>
+            <div class="proto-more-grid">
+              <label class="field" for="rtp-send-udp"><span>传输</span><select id="rtp-send-udp" name="is_udp"><option value="1">UDP</option><option value="0">TCP 主动</option></select></label>
+              <label class="field" for="rtp-send-src-port"><span>本地端口（0 随机）</span><input id="rtp-send-src-port" name="src_port" type="number" min="0" max="65535" value="0"></label>
+              <label class="field" for="rtp-send-pt"><span>Payload Type（0..127）</span><input id="rtp-send-pt" name="pt" type="number" min="0" max="127" value="96"></label>
+              <label class="field" for="rtp-send-type"><span>负载封装</span><select id="rtp-send-type" name="type"><option value="0">ES</option><option value="1" selected>PS</option><option value="2">TS</option></select></label>
+              <label class="field" for="rtp-send-audio"><span>ES 仅音频</span><select id="rtp-send-audio" name="only_audio"><option value="0">0 · 否</option><option value="1">1 · 是</option></select></label>
+              <label class="field" for="rtp-send-multi"><span>同 SSRC 多发</span><select id="rtp-send-multi" name="ssrc_multi_send"><option value="0">0 · 否</option><option value="1">1 · 是</option></select></label>
+            </div>
+          </details>
+          <input type="hidden" name="from_mp4" value="0"><input type="hidden" name="enable_origin_recv_limit" value="0">
+          <div class="source-form-action"><button class="ghost ghost-primary" type="submit">启动主动发送</button></div>
+        </form>
+      </section>
+
+      <section class="proto-op">
+        <div class="proto-op-head"><strong>被动 TCP</strong><span>本机先监听，等对端连上来再发</span></div>
+        <form method="post" action="/rtp/start-send-passive" hx-post="/rtp/start-send-passive" hx-target="#content" hx-confirm="确认启动被动 TCP 发送监听？客户端连接后监听 socket 会关闭并开始发送。" class="form-grid">
+          <label class="field" for="rtp-passive-app"><span>App</span><input id="rtp-passive-app" name="app" required></label>
+          <label class="field" for="rtp-passive-stream"><span>Stream</span><input id="rtp-passive-stream" name="stream" required></label>
+          <label class="field" for="rtp-passive-ssrc"><span>SSRC（十进制）</span><input id="rtp-passive-ssrc" name="ssrc" inputmode="numeric" required></label>
+          <label class="field" for="rtp-passive-port"><span>被动 TCP 监听目标（本机端口，0 随机）</span><input id="rtp-passive-port" name="src_port" type="number" min="0" max="65535" value="0" required></label>
+          <label class="field" for="rtp-passive-vhost"><span>Vhost</span><input id="rtp-passive-vhost" name="vhost" value="__defaultVhost__" required></label>
+          <details class="proto-more field-wide">
+            <summary>更多参数</summary>
+            <div class="proto-more-grid">
+              <label class="field" for="rtp-passive-pt"><span>Payload Type</span><input id="rtp-passive-pt" name="pt" type="number" min="0" max="127" value="96"></label>
+              <label class="field" for="rtp-passive-type"><span>负载封装</span><select id="rtp-passive-type" name="type"><option value="0">ES</option><option value="1" selected>PS</option><option value="2">TS</option></select></label>
+              <label class="field" for="rtp-passive-audio"><span>ES 仅音频</span><select id="rtp-passive-audio" name="only_audio"><option value="0">0 · 否</option><option value="1">1 · 是</option></select></label>
+            </div>
+          </details>
+          <input type="hidden" name="from_mp4" value="0"><input type="hidden" name="enable_origin_recv_limit" value="0">
+          <div class="source-form-action"><button class="ghost ghost-primary" type="submit">启动被动 TCP</button></div>
+        </form>
+      </section>
+
+      <section class="proto-op">
+        <div class="proto-op-head"><strong>双向对讲</strong><span>发送流与接收流必须同一 Vhost / App</span></div>
+        <form method="post" action="/rtp/start-send-talk" hx-post="/rtp/start-send-talk" hx-target="#content" hx-confirm="确认启动双向 RTP 对讲？发送流与接收流必须使用相同 Vhost/App。" class="form-grid">
+          <label class="field" for="rtp-talk-app"><span>共同 App</span><input id="rtp-talk-app" name="app" value="rtp" required></label>
+          <label class="field" for="rtp-talk-stream"><span>发送源 Stream</span><input id="rtp-talk-stream" name="stream" required></label>
+          <label class="field" for="rtp-talk-ssrc"><span>发送 SSRC（十进制）</span><input id="rtp-talk-ssrc" name="ssrc" inputmode="numeric" required></label>
+          <label class="field" for="rtp-talk-recv"><span>对方接收流 ID recv_stream_id</span><input id="rtp-talk-recv" name="recv_stream_id" required></label>
+          <label class="field" for="rtp-talk-vhost"><span>Vhost</span><input id="rtp-talk-vhost" name="vhost" value="__defaultVhost__" required></label>
+          <details class="proto-more field-wide">
+            <summary>更多参数</summary>
+            <div class="proto-more-grid">
+              <label class="field" for="rtp-talk-pt"><span>Payload Type</span><input id="rtp-talk-pt" name="pt" type="number" min="0" max="127" value="96"></label>
+              <label class="field" for="rtp-talk-type"><span>负载封装</span><select id="rtp-talk-type" name="type"><option value="0">ES</option><option value="1" selected>PS</option><option value="2">TS</option></select></label>
+              <label class="field" for="rtp-talk-audio"><span>ES 仅音频</span><select id="rtp-talk-audio" name="only_audio"><option value="0">0 · 否</option><option value="1">1 · 是</option></select></label>
+              <label class="field" for="rtp-talk-limit"><span>限制源端收流速度</span><select id="rtp-talk-limit" name="enable_origin_recv_limit"><option value="0">0 · 否</option><option value="1">1 · 是</option></select></label>
+            </div>
+          </details>
+          <input type="hidden" name="from_mp4" value="0">
+          <div class="source-form-action"><button class="ghost ghost-primary" type="submit">启动双向对讲</button></div>
+        </form>
+      </section>
+
+      <section class="proto-op proto-op-stop">
+        <div class="proto-op-head"><strong>停止发送</strong><span>SSRC 留空会停止该媒体源的全部 RTP 发送任务</span></div>
+        <form method="post" action="/rtp/stop-send" hx-post="/rtp/stop-send" hx-target="#content" hx-confirm="确认停止发送？SSRC 留空会停止该媒体源的全部 RTP 发送任务。" class="form-grid">
+          <label class="field" for="rtp-stop-app"><span>App</span><input id="rtp-stop-app" name="app" required></label>
+          <label class="field" for="rtp-stop-stream"><span>Stream</span><input id="rtp-stop-stream" name="stream" required></label>
+          <label class="field" for="rtp-stop-ssrc"><span>SSRC（留空停止全部）</span><input id="rtp-stop-ssrc" name="ssrc" inputmode="numeric"></label>
+          <label class="field" for="rtp-stop-vhost"><span>Vhost</span><input id="rtp-stop-vhost" name="vhost" value="__defaultVhost__" required></label>
+          <div class="source-form-action"><button class="ghost" type="submit">停止发送</button></div>
+        </form>
+      </section>
+    </div>
+  </article>
+  </div>
+  </fieldset>
+</section>
+{{end}}
+{{define "content-rtp"}}
+{{template "rtp-panels" .}}
+{{end}}

@@ -1,0 +1,68 @@
+{{define "login"}}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>登录 · ZLM 运维后台</title>
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('zlm-theme') === 'light' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', t);
+        document.documentElement.style.colorScheme = t;
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="/static/theme.css?v=ops-layout-28" />
+</head>
+<body class="login-body">
+  <div class="login-bg"></div>
+  <div class="theme-switch login-theme" role="group" aria-label="主题">
+    <button type="button" data-theme-set="light" title="亮色主题">亮色</button>
+    <button type="button" data-theme-set="dark" title="暗色主题">暗色</button>
+  </div>
+  <div class="login-stage">
+  <form class="login-card" method="post" action="/login" autocomplete="on">
+    <input type="hidden" name="next" value="{{.Next}}" />
+    <div class="login-brand">
+      <div class="login-mark">ZLM</div>
+      <h1>运维后台</h1>
+      <p>请输入用户名和密码</p>
+    </div>
+    {{if .Err}}<div class="login-err">{{.Err}}</div>{{end}}
+    <label class="login-field">
+      <span>用户</span>
+      <input name="user" type="text" value="{{.User}}" placeholder="请输入用户" required autofocus />
+    </label>
+    <label class="login-field">
+      <span>密码</span>
+      <input name="pass" type="password" placeholder="请输入密码" required />
+    </label>
+    <button class="login-btn" type="submit">立即登录</button>
+  </form>
+  </div>
+  <script>
+    (function () {
+      var KEY = 'zlm-theme';
+      function apply(t) {
+        t = t === 'light' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', t);
+        document.documentElement.style.colorScheme = t;
+        try { localStorage.setItem(KEY, t); } catch (e) {}
+        document.querySelectorAll('[data-theme-set]').forEach(function (b) {
+          b.classList.toggle('is-on', b.getAttribute('data-theme-set') === t);
+        });
+      }
+      apply(localStorage.getItem(KEY) === 'light' ? 'light' : 'dark');
+      document.addEventListener('click', function (e) {
+        var b = e.target.closest && e.target.closest('[data-theme-set]');
+        if (b) apply(b.getAttribute('data-theme-set'));
+      });
+    })();
+  </script>
+</body>
+</html>
+{{end}}

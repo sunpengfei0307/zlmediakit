@@ -1,0 +1,42 @@
+listen = ":7788"
+
+[basic]
+  name = "ZLM-ADMIN"
+  vers = "v1.0.0"
+  type = "web"
+  mode = "release"
+  mark = "ops"
+  role = "center"
+  port = 7788
+  https_port = 7789
+  skey = ""
+  enable_dash = false
+  enable_snap = true
+  snap_interval = 30
+  ffmpeg = "/data/sunpf/ffmpeg-builds/build/release/bin/ffmpeg"
+
+[loger]
+  path = "log"
+  rank = "info"
+  size = 200
+  ages = 30
+  baks = 100
+  pack = false
+
+[[nodes]]
+  id = "zlm-1"
+  name = "本机 ZLM"
+  api = "http://127.0.0.1:8090"
+  secret = ""
+  http_port = 8090
+  https_port = 8443
+  rtsp_port = 554
+  rtmp_port = 1935
+  srt_port = 9000
+  webrtc_port = 8000
+  local_metrics = true
+  metrics_url = ""
+  ini = "/data/sunpf/tools/zlm-admin/zlm-server/config.ini"
+  log_dir = "/data/sunpf/tools/zlm-admin/zlm-server/log"
+  root = "/data/sunpf/tools/zlm-admin/zlm-server"
+  bin = "/data/sunpf/tools/zlm-admin/zlm-server/MediaServer"

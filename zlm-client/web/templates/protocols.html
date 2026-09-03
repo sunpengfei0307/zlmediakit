@@ -1,0 +1,20 @@
+﻿{{define "content-protocols"}}
+<section class="ops-page proto-page">
+  <div class="ops-head proto-head">
+    <div>
+      <strong>协议管理</strong>
+      <span class="muted">按协议分区：先看状态，再做一项明确操作。未启用的模块表单会锁定</span>
+    </div>
+  </div>
+  <nav class="ops-tabs" aria-label="协议类型">
+    <a class="ops-tab{{if eq .Tab "onvif"}} is-on{{end}}{{if not .ONVIFReady}} is-off{{end}}" href="/protocols?tab=onvif" hx-get="/protocols?tab=onvif" hx-target="#content" hx-push-url="true">ONVIF {{if .ONVIFReady}}<span class="chip">可用</span>{{else}}<span class="chip">未启用</span>{{end}}</a>
+    <a class="ops-tab{{if eq .Tab "webrtc"}} is-on{{end}}{{if not .WebRTCReady}} is-off{{end}}" href="/protocols?tab=webrtc" hx-get="/protocols?tab=webrtc" hx-target="#content" hx-push-url="true">WebRTC {{if .WebRTCReady}}<span class="chip">可用</span>{{else}}<span class="chip">未启用</span>{{end}}</a>
+    <a class="ops-tab{{if eq .Tab "rtp"}} is-on{{end}}{{if not .RTPReady}} is-off{{end}}" href="/protocols?tab=rtp" hx-get="/protocols?tab=rtp" hx-target="#content" hx-push-url="true">RTP / GB28181 {{if .RTPReady}}<span class="chip">可用</span>{{else}}<span class="chip">未启用</span>{{end}}</a>
+  </nav>
+  <div class="ops-body">
+    {{if eq .Tab "onvif"}}{{template "onvif-panels" .}}
+    {{else if eq .Tab "webrtc"}}{{template "webrtc-panels" .}}
+    {{else}}{{template "rtp-panels" .}}{{end}}
+  </div>
+</section>
+{{end}}

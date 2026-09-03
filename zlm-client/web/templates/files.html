@@ -1,0 +1,305 @@
+{{define "content-files"}}
+<section class="ops-page">
+<div class="ops-head">
+  <div>
+    <strong>录制管理</strong>
+    <span class="muted" id="recMeta">
+      {{if index .Recording "mp4"}}正在录制 MP4 · {{end}}
+      {{if index .Recording "hls"}}正在录制 HLS · {{end}}
+      {{if .Group}}{{asStr (index .Group "note")}} · {{end}}
+      {{if .App}}{{.App}}/{{.Stream}}{{else}}请选择 app 和 stream{{end}}
+    </span>
+  </div>
+</div>
+<div class="toolbar glass-toolbar rec-topbar">
+  <div class="rec-topbar-main">
+    <select id="recApp" name="app" title="app" hx-get="/files" hx-target="#content" hx-push-url="true" hx-swap="innerHTML"
+      hx-include="[name='stream'],[name='proto'],[name='panel'],[name='q'],[name='sort'],[name='dir'],[name='size']">
+      <option value="">选择 app</option>
+      {{range .AppNames}}
+      <option value="{{.}}" {{if eq $.App .}}selected{{end}}>{{.}}</option>
+      {{end}}
+    </select>
+    <select id="recStream" name="stream" title="stream" hx-get="/files" hx-target="#content" hx-push-url="true" hx-swap="innerHTML"
+      hx-include="[name='app'],[name='proto'],[name='panel'],[name='q'],[name='sort'],[name='dir'],[name='size']">
+      <option value="">选择 stream</option>
+      {{range .Streams}}
+      <option value="{{.}}" {{if eq $.Stream .}}selected{{end}}>{{.}}</option>
+      {{end}}
+    </select>
+    <select id="recProto" name="proto" title="协议" hx-get="/files" hx-target="#content" hx-push-url="true" hx-swap="innerHTML"
+      hx-include="[name='app'],[name='stream'],[name='panel'],[name='q'],[name='sort'],[name='dir'],[name='size']">
+      {{range .ProtoOptions}}
+      <option value="{{asStr (index . "id")}}" {{if eq $.Proto (asStr (index . "id"))}}selected{{end}}>
+        {{asStr (index . "label")}}{{if not (index . "enabled")}} · 关{{end}}
+      </option>
+      {{end}}
+    </select>
+    {{if or (eq .Proto "record") (eq .Proto "hls")}}
+    <label class="field rec-kind-field" for="recType"><span>封装</span>
+      <select id="recType" name="kind" title="录制封装"
+        hx-get="/files" hx-target="#content" hx-push-url="true" hx-swap="innerHTML"
+        hx-include="[name='app'],[name='stream'],[name='panel'],[name='q'],[name='sort'],[name='dir'],[name='size']"
+        hx-vals="js:{proto: event.target.value==='hls'?'hls':'record', page:'1'}">
+        <option value="mp4" {{if ne .Proto "hls"}}selected{{end}}>MP4</option>
+        <option value="hls" {{if eq .Proto "hls"}}selected{{end}}>HLS</option>
+      </select>
+    </label>
+    {{end}}
+    <input id="recSearch" name="q" type="search" value="{{asStr .Q}}" placeholder="筛选文件名 / 目录 / 类型"
+      hx-get="/files" hx-target="#content" hx-push-url="true" hx-swap="innerHTML"
+      hx-trigger="keyup changed delay:300ms, search"
+      hx-include="[name='app'],[name='stream'],[name='proto'],[name='panel'],[name='sort'],[name='dir'],[name='size']" />
+    <a class="ghost" href="{{withQuery "/files" .ListQuery}}"
+      hx-get="{{withQuery "/files" .ListQuery}}" hx-target="#content" hx-swap="innerHTML">刷新</a>
+    <input type="hidden" name="panel" value="{{if .Panel}}{{.Panel}}{{else}}record{{end}}">
+    <input type="hidden" name="sort" value="{{asStr .Sort}}">
+    <input type="hidden" name="dir" value="{{asStr .Dir}}">
+    {{if .Size}}<input type="hidden" name="size" value="{{.Size}}">{{end}}
+    {{if or (eq .Proto "record") (eq .Proto "hls")}}
+    <div class="rec-topbar-right">
+      <nav class="ops-tabs" aria-label="录制操作">
+        <a class="ops-tab{{if or (eq .Panel "record") (not .Panel)}} is-on{{end}}" href="{{withQuery "/files" .ListQuery "panel" "record"}}" hx-get="{{withQuery "/files" .ListQuery "panel" "record"}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">录制</a>
+        <a class="ops-tab{{if eq .Panel "event"}} is-on{{end}}" href="{{withQuery "/files" .ListQuery "panel" "event"}}" hx-get="{{withQuery "/files" .ListQuery "panel" "event"}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">事件录像</a>
+        <a class="ops-tab{{if eq .Panel "vod"}} is-on{{end}}" href="{{withQuery "/files" .ListQuery "panel" "vod"}}" hx-get="{{withQuery "/files" .ListQuery "panel" "vod"}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">点播控制</a>
+      </nav>
+    </div>
+    {{end}}
+  </div>
+</div>
+<div class="ops-body">
+{{if and (or (eq .Proto "record") (eq .Proto "hls")) (or (eq .Panel "record") (not .Panel))}}
+<article class="rec-bar" id="recRecordBar" title="开始录制会先写入内存里的 GOP 缓存，停止会等到下一个关键帧。流 GOP 较长时，文件会明显长于点击间隔。">
+  <span class="rec-bar-title">录制 <em>{{if eq .Proto "record"}}MP4 文件{{else}}HLS 切片{{end}}</em></span>
+  <div class="rec-toolbar rec-compact">
+    <label class="field" for="recMode"><span>方式</span>
+    <select id="recMode" name="mode" title="录制方式">
+      <option value="segment" {{if ne .RecMode "single"}}selected{{end}}>按时长切片</option>
+      <option value="single" {{if eq .RecMode "single"}}selected{{end}}>单文件</option>
+    </select></label>
+    <label class="field muted" id="recSegWrap"><span>每段分钟</span>
+      <input id="recSegMin" name="seg_min" type="number" min="1" value="{{.RecSegMin}}" />
+    </label>
+  </div>
+  {{if .RecOn}}<span class="rec-bar-status status-on" role="status">正在录制，请点「停止录制」</span>
+  {{else}}<span class="rec-bar-status muted" role="status">未在录制</span>{{end}}
+  <div class="rec-topbar-actions">
+    <form method="post" action="/files/record/start" hx-post="/files/record/start" hx-target="#content" hx-swap="innerHTML"
+      hx-include="#recType,#recMode,#recSegMin" hx-disinherit="*" data-zlm-post class="rec-toolbar rec-toolbar-start">
+      <input type="hidden" name="app" value="{{.App}}" />
+      <input type="hidden" name="stream" value="{{.Stream}}" />
+      <input type="hidden" name="proto" value="{{.Proto}}" />
+      <input type="hidden" name="view_panel" value="record" />
+      <input type="hidden" name="view_q" value="{{asStr .Q}}" />
+      <input type="hidden" name="view_sort" value="{{asStr .Sort}}" />
+      <input type="hidden" name="view_dir" value="{{asStr .Dir}}" />
+      {{if .Size}}<input type="hidden" name="view_size" value="{{.Size}}">{{end}}
+      <button class="ghost{{if not .RecOn}} ghost-primary{{end}}" type="submit" {{if .RecOn}}disabled{{end}} title="{{if .RecOn}}已在录制，请先停止{{else}}开始会带上当前 GOP 缓存，文件可能比点击时间长{{end}}">开始录制</button>
+    </form>
+    <form method="post" action="/files/record/stop" hx-post="/files/record/stop" hx-target="#content" hx-swap="innerHTML" hx-include="#recType"
+      hx-disinherit="*" data-zlm-post class="rec-toolbar rec-toolbar-stop">
+      <input type="hidden" name="app" value="{{.App}}" />
+      <input type="hidden" name="stream" value="{{.Stream}}" />
+      <input type="hidden" name="proto" value="{{.Proto}}" />
+      <input type="hidden" name="view_panel" value="record" />
+      <input type="hidden" name="view_q" value="{{asStr .Q}}" />
+      <input type="hidden" name="view_sort" value="{{asStr .Sort}}" />
+      <input type="hidden" name="view_dir" value="{{asStr .Dir}}" />
+      {{if .Size}}<input type="hidden" name="view_size" value="{{.Size}}">{{end}}
+      <button class="ghost{{if .RecOn}} ghost-primary{{end}}" type="submit" {{if not .RecOn}}disabled{{end}} title="{{if .RecOn}}停止当前录制{{else}}当前没有在录制{{end}}">停止录制</button>
+    </form>
+  </div>
+</article>
+{{end}}
+{{if eq .Panel "event"}}
+<article class="rec-bar" title="从当前流 GOP 缓存往前切、再往后录一段 MP4。回溯依赖缓存深度，已在线的流需重推后新 GOP 缓存才生效。">
+  <span class="rec-bar-title">即时截录</span>
+    <form method="post" action="/files/vod/startRecordTask" hx-post="/files/vod/startRecordTask" hx-target="#content" hx-swap="innerHTML"
+      hx-disinherit="*" data-zlm-post class="rec-toolbar rec-compact">
+    <input type="hidden" name="view_app" value="{{.App}}">
+    <input type="hidden" name="view_stream" value="{{.Stream}}">
+    <input type="hidden" name="view_proto" value="{{.Proto}}">
+    <input type="hidden" name="view_panel" value="event">
+    <input type="hidden" name="view_q" value="{{asStr .Q}}">
+    <input type="hidden" name="view_sort" value="{{asStr .Sort}}">
+    <input type="hidden" name="view_dir" value="{{asStr .Dir}}">
+    <input type="hidden" name="app" value="{{.App}}">
+    <input type="hidden" name="stream" value="{{.Stream}}">
+    <label class="field"><span>vhost</span><input name="vhost" value="__defaultVhost__" required></label>
+    <label class="field field-grow"><span>保存文件名</span><input name="path" value="{{.EventName}}" required pattern=".*\.mp4$" title="建议保留 event- 前缀，方便在列表里辨认"></label>
+    <label class="field field-num"><span>回溯秒数</span><input name="back_sec" type="number" min="0" max="600" value="10" required title="从当前时刻往前保留的秒数，发给 ZLM 时转为毫秒"></label>
+    <label class="field field-num"><span>再录秒数</span><input name="forward_sec" type="number" min="0" max="600" value="10" required title="从当前时刻往后继续录的秒数"></label>
+    <button class="ghost ghost-primary" type="submit">截录当前流</button>
+  </form>
+</article>
+{{end}}
+{{if eq .Panel "vod"}}
+<article class="rec-bar">
+  <span class="rec-bar-title">录像播放控制 <em>仅适用于由录像加载产生的流</em></span>
+  <form id="vodCtrlForm" data-zlm-post method="post" action="/files/vod/seekRecordStamp" hx-disinherit="*"
+    class="rec-toolbar rec-compact">
+    <input type="hidden" name="view_app" value="{{.App}}"><input type="hidden" name="view_stream" value="{{.Stream}}"><input type="hidden" name="view_proto" value="{{.Proto}}"><input type="hidden" name="view_panel" value="vod">
+    <input type="hidden" name="view_q" value="{{asStr .Q}}"><input type="hidden" name="view_sort" value="{{asStr .Sort}}"><input type="hidden" name="view_dir" value="{{asStr .Dir}}">
+    <label class="field field-schema"><span>schema</span>
+      <select name="schema" required><option>rtmp</option><option>rtsp</option><option>fmp4</option><option>ts</option><option>hls</option><option>hls.fmp4</option><option>rtc</option></select>
+    </label>
+    <label class="field field-vhost"><span>vhost</span><input name="vhost" value="__defaultVhost__" required></label>
+    <label class="field field-app"><span>app</span><input id="vodCtrlApp" name="app" value="vod" required></label>
+    <label class="field field-stream"><span>stream</span><input id="vodCtrlStream" name="stream" placeholder="点播流 ID" required></label>
+    <label class="field field-num"><span>位置毫秒</span><input name="stamp" type="number" min="0" max="86400000" value="0" required></label>
+    <button class="ghost ghost-primary" type="submit" formaction="/files/vod/seekRecordStamp" formmethod="post"
+      hx-post="/files/vod/seekRecordStamp" hx-trigger="none">跳转录像</button>
+    <label class="field field-num"><span>速度</span><input name="speed" type="number" min="0.25" max="4" step="0.25" value="1" required></label>
+    <button class="ghost ghost-primary" type="submit" formaction="/files/vod/setRecordSpeed" formmethod="post"
+      hx-post="/files/vod/setRecordSpeed" hx-trigger="none">设置录像速度</button>
+  </form>
+</article>
+{{end}}
+
+</div>
+
+<div class="table-wrap" data-batch-root="files">
+  <table class="rec-table js-grid">
+    <thead><tr>
+      <th class="col-idx">序号</th>
+      <th class="col-check"><input type="checkbox" id="batchCheckAll" data-batch-root="files" title="全选本页" /></th>
+      <th class="col-file"><a class="th-sort{{if eq (asStr .Sort) "name"}} is-on is-{{asStr .Dir}}{{end}}" href="{{sortURL "/files" .ListQuery "name" .Sort .Dir}}" hx-get="{{sortURL "/files" .ListQuery "name" .Sort .Dir}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">文件</a></th>
+      <th class="col-dir"><a class="th-sort{{if eq (asStr .Sort) "dir"}} is-on is-{{asStr .Dir}}{{end}}" href="{{sortURL "/files" .ListQuery "dir" .Sort .Dir}}" hx-get="{{sortURL "/files" .ListQuery "dir" .Sort .Dir}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">目录</a></th>
+      <th class="col-type"><a class="th-sort{{if or (eq (asStr .Sort) "type") (eq (asStr .Sort) "role")}} is-on is-{{asStr .Dir}}{{end}}" href="{{sortURL "/files" .ListQuery "type" .Sort .Dir}}" hx-get="{{sortURL "/files" .ListQuery "type" .Sort .Dir}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">类型</a></th>
+      <th class="col-size"><a class="th-sort{{if eq (asStr .Sort) "size"}} is-on is-{{asStr .Dir}}{{end}}" href="{{sortURL "/files" .ListQuery "size" .Sort .Dir}}" hx-get="{{sortURL "/files" .ListQuery "size" .Sort .Dir}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">大小</a></th>
+      <th class="col-dur"><a class="th-sort{{if or (eq (asStr .Sort) "dur") (eq (asStr .Sort) "duration")}} is-on is-{{asStr .Dir}}{{end}}" href="{{sortURL "/files" .ListQuery "dur" .Sort .Dir}}" hx-get="{{sortURL "/files" .ListQuery "dur" .Sort .Dir}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">时长</a></th>
+      <th class="col-mtime"><a class="th-sort{{if or (eq (asStr .Sort) "mtime") (not .Sort)}} is-on is-{{asStr .Dir}}{{end}}" href="{{sortURL "/files" .ListQuery "mtime" .Sort .Dir}}" hx-get="{{sortURL "/files" .ListQuery "mtime" .Sort .Dir}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">修改时间</a></th>
+      <th class="col-rec-act">操作</th>
+    </tr></thead>
+    <tbody id="recFileBody">
+      {{if or (not .App) (not .Stream)}}
+      <tr><td class="muted" colspan="9">请先选择 app 和 stream</td></tr>
+      {{else if not .Group}}
+      <tr><td class="muted" colspan="9">暂无文件</td></tr>
+      {{else}}
+      {{$files := index .Group "files"}}
+      {{$page := 1}}{{$size := 20}}
+      {{if .Pager}}{{$page = .Pager.Page}}{{$size = .Pager.Size}}{{end}}
+      {{if not $files}}
+      <tr><td class="muted" colspan="9">{{asStr (index .Group "note")}}</td></tr>
+      {{else}}
+      {{range $i, $f := $files}}
+      <tr class="{{if eq .Head 0}}file-head{{end}}{{if .VodLoaded}} file-vod-on{{end}}">
+        <td class="col-idx">{{seqNo $page $size $i}}</td>
+        <td class="col-check">
+          <input class="row-check" type="checkbox" value="{{.Path}}"
+            data-dl="/api/node/{{$.NodeID}}/file?path={{urlquery .Path}}&dl=1" data-name="{{.Name}}" />
+        </td>
+        <td class="col-file">
+          <div class="file-name-cell">
+            {{if .VodLoaded}}
+            <button class="file-jump" type="button" data-play="{{.PlaySID}}" title="预览点播流">{{.Name}}</button>
+            {{else}}
+            <button class="file-jump file-play" type="button" data-path="{{.Path}}" data-kind="{{.Kind}}" data-role="{{.Role}}" data-playlist="{{.Playlist}}" title="{{if or (eq .Ext ".jpg") (eq .Ext ".jpeg") (eq .Kind "snap")}}预览图片{{else}}预览文件{{end}}">{{.Name}}</button>
+            {{end}}
+            {{if .VodLoaded}}<span class="vod-flag" title="已加载为点播流 {{.VodApp}}/{{.VodStream}}">点播中 {{.VodApp}}/{{.VodStream}}</span>{{end}}
+            {{if eq .Ext ".mp4"}}<span class="vod-badge{{if .VodLoaded}} is-on{{end}}" title="{{if .VodLoaded}}已加载为点播{{else}}可加载为点播{{end}}">点播</span>{{end}}
+          </div>
+        </td>
+        <td class="col-dir"><button class="path-chip path-jump" type="button" data-path="{{.Dir}}" title="点击复制目录 {{.Dir}}">{{.Dir}}</button></td>
+        <td class="col-type"><span class="role-chip{{if hasPrefix .Role "live_"}} live{{end}}">{{roleLabel .Role .Ext}}</span></td>
+        <td class="col-size">{{fmtBytes .Size}}</td>
+        <td class="col-dur">{{if gt .DurationSec 0.0}}{{fmtDur .DurationSec}}{{else}}-{{end}}</td>
+        <td class="col-mtime">{{fmtTime .ModTime}}</td>
+        <td class="col-rec-act">
+          <div class="act-row">
+            {{if .VodLoaded}}
+            <button class="ghost btn-play" type="button" data-play="{{.PlaySID}}">预览点播</button>
+            {{else}}
+            <button class="ghost file-play" type="button" data-path="{{.Path}}" data-kind="{{.Kind}}" data-role="{{.Role}}" data-playlist="{{.Playlist}}" title="{{if or (eq .Ext ".jpg") (eq .Ext ".jpeg") (eq .Kind "snap")}}预览图片{{else}}预览文件{{end}}">预览</button>
+            {{end}}
+            <a class="ghost" href="/api/node/{{$.NodeID}}/file?path={{urlquery .Path}}&dl=1" download="{{.Name}}">下载</a>
+            {{if .VodLoaded}}
+            <button class="ghost file-copy" type="button" data-url="{{.PlayURL}}">复制播放链接</button>
+            {{else}}
+            <button class="ghost file-copy" type="button" data-path="{{.Path}}">复制链接</button>
+            {{end}}
+            {{if eq .Ext ".mp4"}}
+            <button class="ghost file-vod-open" type="button"
+              data-path="{{.Path}}" data-name="{{.Name}}"
+              data-app="{{if .VodApp}}{{.VodApp}}{{else}}vod{{end}}"
+              data-stream="{{if .VodStream}}{{.VodStream}}{{else if .Name}}{{.Name}}{{else}}{{.Stream}}{{end}}">生成点播</button>
+            {{end}}
+            <form data-zlm-post method="post" action="/files/vod/deleteRecordFile" hx-post="/files/vod/deleteRecordFile" hx-target="#content" hx-swap="innerHTML"
+              hx-confirm="确认删除录像文件 {{.Name}}？删除后不可恢复。" hx-disinherit="*" class="inline-del">
+              <input type="hidden" name="file_path" value="{{.Path}}">
+              <input type="hidden" name="view_app" value="{{$.App}}">
+              <input type="hidden" name="view_stream" value="{{$.Stream}}">
+              <input type="hidden" name="view_proto" value="{{$.Proto}}">
+              <input type="hidden" name="view_panel" value="{{$.Panel}}">
+              <input type="hidden" name="view_q" value="{{$.Q}}">
+              <input type="hidden" name="view_sort" value="{{$.Sort}}">
+              <input type="hidden" name="view_dir" value="{{$.Dir}}">
+              <button class="ghost ghost-danger" type="submit">删除</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {{end}}
+      {{end}}
+      {{end}}
+    </tbody>
+  </table>
+</div>
+<div class="rec-foot">
+<div class="batch-bar" data-batch-for="files">
+  <span class="muted">已选 <b data-batch-count>0</b></span>
+  <button class="ghost" type="button" data-batch-download disabled>下载选中</button>
+  <form method="post" action="/files/vod/deleteRecordFile" hx-post="/files/vod/deleteRecordFile" hx-target="#content" hx-swap="innerHTML"
+    hx-confirm="确认删除当前页勾选的录像文件？删除后不可恢复。" hx-disinherit="*" data-zlm-post data-batch-form="files">
+    <input type="hidden" name="view_app" value="{{.App}}">
+    <input type="hidden" name="view_stream" value="{{.Stream}}">
+    <input type="hidden" name="view_proto" value="{{.Proto}}">
+    <input type="hidden" name="view_panel" value="{{if .Panel}}{{.Panel}}{{else}}record{{end}}">
+    <input type="hidden" name="view_q" value="{{asStr .Q}}">
+    <input type="hidden" name="view_sort" value="{{asStr .Sort}}">
+    <input type="hidden" name="view_dir" value="{{asStr .Dir}}">
+    {{if .Size}}<input type="hidden" name="view_size" value="{{.Size}}">{{end}}
+    <button class="ghost ghost-danger" type="submit" data-batch-submit disabled>删除选中</button>
+  </form>
+</div>
+{{template "table-pager" .Pager}}
+</div>
+<script type="application/json" id="recFilesJson">{{if .Group}}{{json (index .Group "files")}}{{else}}[]{{end}}</script>
+<aside id="vodDrawer" class="side-drawer" aria-hidden="true">
+  <div class="side-drawer-mask" data-close-drawer></div>
+  <div class="side-drawer-panel" role="dialog" aria-modal="true" aria-labelledby="vodDrawerTitle">
+    <div class="side-drawer-head">
+      <div>
+        <h3 id="vodDrawerTitle">加载为点播流</h3>
+        <p class="muted" id="vodDrawerFile">选择 MP4 后在此配置目标流</p>
+      </div>
+      <button class="ghost" type="button" data-close-drawer>关闭</button>
+    </div>
+    <form id="vodLoadForm" data-zlm-post method="post" action="/files/vod/loadMP4File" hx-post="/files/vod/loadMP4File" hx-target="#content" hx-swap="innerHTML"
+      hx-disinherit="*" class="drawer-form">
+      <input type="hidden" name="view_app" value="{{.App}}">
+      <input type="hidden" name="view_stream" value="{{.Stream}}">
+      <input type="hidden" name="view_proto" value="{{.Proto}}">
+      <input type="hidden" name="view_panel" value="{{if .Panel}}{{.Panel}}{{else}}record{{end}}">
+      <input type="hidden" name="view_q" value="{{asStr .Q}}">
+      <input type="hidden" name="view_sort" value="{{asStr .Sort}}">
+      <input type="hidden" name="view_dir" value="{{asStr .Dir}}">
+      <input type="hidden" name="vhost" value="__defaultVhost__">
+      <input type="hidden" name="file_path" id="vodFilePath" value="">
+      <label class="field" for="vodApp"><span>目标 app（勿填正在直播的 app）</span><input id="vodApp" name="app" value="vod" required></label>
+      <label class="field" for="vodStream"><span>目标 stream</span><input id="vodStream" name="stream" required></label>
+      <label class="field" for="vodRepeat"><span>重复播放</span>
+        <select id="vodRepeat" name="file_repeat"><option value="0">否</option><option value="1">是</option></select>
+      </label>
+      <label class="field" for="vodSeek"><span>起始毫秒</span><input id="vodSeek" name="seek_ms" type="number" min="0" max="86400000" value="0" required></label>
+      <label class="field" for="vodSpeed"><span>速度</span><input id="vodSpeed" name="speed" type="number" min="0.25" max="4" step="0.25" value="1" required></label>
+      <div class="drawer-actions">
+        <button class="ghost" type="button" data-close-drawer>取消</button>
+        <button class="ghost ghost-primary" type="submit">加载</button>
+      </div>
+    </form>
+  </div>
+</aside>
+</section>
+{{end}}

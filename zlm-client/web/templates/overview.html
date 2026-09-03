@@ -1,0 +1,169 @@
+{{define "content-overview"}}
+<div class="ov-page">
+  <div class="ov-left">
+    {{template "overview-live-main" .}}
+    <section class="ov-charts">
+      <div class="ov-chart-head">
+        <h3>趋势</h3>
+        <div class="range-btns" id="chartRange">
+          <button class="ghost" type="button" data-range="1h">分时</button>
+          <button class="ghost active" type="button" data-range="1d">1天</button>
+          <button class="ghost" type="button" data-range="3d">3天</button>
+          <button class="ghost" type="button" data-range="7d">7天</button>
+        </div>
+      </div>
+      <div class="chart-card">
+        <h4>并发趋势 · 推流 / 拉流 / 连接</h4>
+        <div class="chart-box" id="chartFlow"></div>
+        <div class="legend">
+          <span><i style="background:#409eff"></i>推流数</span>
+          <span><i style="background:#67c23a"></i>拉流数</span>
+          <span><i style="background:#909399"></i>连接数</span>
+        </div>
+      </div>
+      <div class="ov-chart-pair">
+        <div class="chart-card">
+          <h4>媒体码率 · 入口 / 出口</h4>
+          <div class="chart-box" id="chartBitrate"></div>
+          <div class="legend">
+            <span><i style="background:#67c23a"></i>入口</span>
+            <span><i style="background:#409eff"></i>出口</span>
+          </div>
+        </div>
+        <div class="chart-card">
+          <h4>网络吞吐 · 网卡 ↓ / ↑</h4>
+          <div class="chart-box" id="chartNet"></div>
+          <div class="legend">
+            <span><i style="background:#67c23a"></i>下行</span>
+            <span><i style="background:#409eff"></i>上行</span>
+          </div>
+        </div>
+      </div>
+      <div class="chart-card">
+        <h4>本机资源 · CPU / 内存 / 网络利用率</h4>
+        <div class="chart-box" id="chartHost"></div>
+        <div class="legend">
+          <span><i style="background:#e6a23c"></i>CPU %</span>
+          <span><i style="background:#67c23a"></i>内存 %</span>
+          <span><i style="background:#409eff"></i>网络 %</span>
+        </div>
+      </div>
+    </section>
+  </div>
+  {{template "overview-live-side" .}}
+</div>
+{{end}}
+
+{{define "overview-live-main"}}
+<div id="overview-live-main" class="ov-live-main" hx-get="/ui/overview?frag=live-main" hx-trigger="every 10s" hx-swap="outerHTML" hx-disinherit="hx-swap hx-trigger">
+  <div class="kpis ov-kpis">
+    <a class="kpi kpi-link" href="/streams" hx-get="/streams" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" hx-disinherit="*" title="打开直播管理">
+      <div class="lab">直播流</div><div class="val">{{.KPI.Streams}}</div>
+    </a>
+    <a class="kpi kpi-link" href="/streams" hx-get="/streams" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" hx-disinherit="*" title="打开直播管理查看观看数">
+      <div class="lab">观看数</div><div class="val">{{.KPI.Viewers}}</div>
+    </a>
+    <a class="kpi kpi-link" href="/sessions" hx-get="/sessions" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" hx-disinherit="*" title="打开连接管理">
+      <div class="lab">连接数</div><div class="val">{{.KPI.Sessions}}</div>
+    </a>
+    <a class="kpi kpi-link" href="/streams" hx-get="/streams" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" hx-disinherit="*" title="打开直播管理查看入口码率">
+      <div class="lab">入口码率</div><div class="val">{{fmtBps .KPI.InSpeed}}</div>
+    </a>
+    <a class="kpi kpi-link" href="/streams" hx-get="/streams" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" hx-disinherit="*" title="打开直播管理查看出口码率">
+      <div class="lab">出口码率</div><div class="val">{{fmtBps .KPI.OutSpeed}}</div>
+    </a>
+    <a class="kpi kpi-link" href="/files" hx-get="/files" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" hx-disinherit="*" title="打开录制管理">
+      <div class="lab">录制中</div><div class="val">{{.KPI.Recording}}</div>
+    </a>
+  </div>
+  <div class="ov-strip">
+    <a class="ov-chip" href="/streams" hx-get="/streams" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" hx-disinherit="*" title="协议实例（MediaSource）">协议实例<b>{{.KPI.MediaSource}}</b></a>
+    <a class="ov-chip" href="/streams" hx-get="/streams" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" hx-disinherit="*" title="尚未就绪的流">等待<b>{{.KPI.Waiting}}</b></a>
+    <a class="ov-chip" href="/events" hx-get="/events" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" hx-disinherit="*" title="打开 Hook 事件">Hook<b>{{.KPI.Hook}}</b></a>
+    {{range .KPI.Protocols}}
+    <span class="ov-chip ov-chip-proto">{{.Name}}<b>{{.Count}}</b></span>
+    {{end}}
+  </div>
+  {{if .KPI.Protocols}}
+  <article class="ov-panel ov-proto-card">
+    <h3>协议构成</h3>
+    <div class="ov-proto-bars">
+      {{range .KPI.Protocols}}
+      <div class="ov-proto-row">
+        <span>{{.Name}}</span>
+        <div class="track"><div class="fill" style="width:{{.Pct}}%"></div></div>
+        <b>{{.Count}}</b>
+      </div>
+      {{end}}
+    </div>
+  </article>
+  {{end}}
+</div>
+{{end}}
+
+{{define "overview-live-side"}}
+<aside id="overview-live-side" class="ov-side" hx-get="/ui/overview?frag=live-side" hx-trigger="every 10s" hx-swap="outerHTML" hx-disinherit="hx-swap hx-trigger">
+  {{range index .Overview "nodes"}}
+  <article class="ov-panel ov-node">
+    <div class="hero-head">
+      <h3><span class="dot {{if .Online}}on{{else}}off{{end}}"></span>{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</h3>
+      <span class="badge {{if not .Online}}off{{end}}">{{if .Online}}在线{{else}}离线{{end}}</span>
+    </div>
+    <div class="hero-stats">
+      <span class="pill">API<b>{{.API}}</b></span>
+      {{if .VersionError}}
+      <span class="pill" title="{{.VersionError}}">版本<b>版本不可用</b></span>
+      {{else}}
+      <span class="pill">构建<b>{{if .BuildTime}}{{.BuildTime}}{{else}}-{{end}}</b></span>
+      <span class="pill">分支<b>{{if .BranchName}}{{.BranchName}}{{else}}-{{end}}</b></span>
+      <span class="pill">提交<b>{{if .CommitHash}}{{.CommitHash}}{{else}}-{{end}}</b></span>
+      {{end}}
+    </div>
+    <div class="hero-paths">
+      {{if .Root}}<div><div class="lab">工作目录</div><div class="path-chip">{{.Root}}</div></div>{{end}}
+      {{if .Bin}}<div><div class="lab">二进制</div><div class="path-chip">{{.Bin}}</div></div>{{end}}
+    </div>
+    <div class="ov-jump">
+      <a class="ghost" href="/streams" hx-get="/streams" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" hx-disinherit="*">直播</a>
+      <a class="ghost" href="/sessions" hx-get="/sessions" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" hx-disinherit="*">连接</a>
+      <a class="ghost" href="/files" hx-get="/files" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" hx-disinherit="*">录制</a>
+    </div>
+    {{if .Error}}<div class="err" style="margin-top:8px">{{.Error}}</div>{{end}}
+  </article>
+  <article class="ov-panel">
+    <h3>主机负载</h3>
+    <div class="bars">
+      {{with .Host}}
+      <div class="bar"><span>CPU</span><div class="track"><div class="fill {{fillClass .CPUPercent}}" style="width:{{printf "%.1f" (pctBar .CPUPercent)}}%"></div></div><span>{{printf "%.1f" .CPUPercent}}%</span></div>
+      <div class="bar"><span>内存</span><div class="track"><div class="fill {{fillClass .MemPercent}}" style="width:{{printf "%.1f" (pctBar .MemPercent)}}%"></div></div><span>{{printf "%.1f" .MemPercent}}%</span></div>
+      <div class="bar"><span>磁盘</span><div class="track"><div class="fill {{fillClass .DiskPercent}}" style="width:{{printf "%.1f" (pctBar .DiskPercent)}}%"></div></div><span>{{printf "%.1f" .DiskPercent}}%</span></div>
+      {{end}}
+      <div class="bar"><span>线程</span><div class="track"><div class="fill {{fillClass .ThreadAvg}}" style="width:{{printf "%.1f" (pctBar .ThreadAvg)}}%"></div></div><span>{{printf "%.1f" .ThreadAvg}}%</span></div>
+    </div>
+    <div class="io-grid ov-io">
+      <div class="io-cell"><div class="lab">负载</div><div class="val">{{if .Host}}{{printf "%.2f" .Host.Load1}}{{else}}—{{end}}</div></div>
+      <div class="io-cell"><div class="lab">网 ↓ / ↑</div><div class="val">{{if .Host}}{{fmtBps .Host.NetRxBps}} <small>↓</small> {{fmtBps .Host.NetTxBps}} <small>↑</small>{{else}}—{{end}}</div></div>
+      <div class="io-cell"><div class="lab">盘 R / W</div><div class="val">{{if .Host}}{{fmtBps .Host.DiskReadBps}} <small>R</small> {{fmtBps .Host.DiskWriteBps}} <small>W</small>{{else}}—{{end}}</div></div>
+      <div class="io-cell"><div class="lab">线程负载</div><div class="val">{{printf "%.1f" .ThreadAvg}}%</div></div>
+    </div>
+  </article>
+  <article class="ov-panel">
+    <h3>ZLM 对象</h3>
+    <div class="ov-objects">
+      <div class="ov-obj"><div class="lab">MediaSource</div><div class="val">{{.MediaSource}}</div></div>
+      <div class="ov-obj"><div class="lab">Muxer</div><div class="val">{{.Muxer}}</div></div>
+      <div class="ov-obj"><div class="lab">TcpSession</div><div class="val">{{.TcpSession}}</div></div>
+      <div class="ov-obj"><div class="lab">UdpSession</div><div class="val">{{.UdpSession}}</div></div>
+      <div class="ov-obj"><div class="lab">Socket</div><div class="val">{{.Socket}}</div></div>
+      <div class="ov-obj"><div class="lab">Buffer</div><div class="val">{{.Buffer}}</div></div>
+      <div class="ov-obj"><div class="lab">Frame</div><div class="val">{{.Frame}}</div></div>
+      <div class="ov-obj"><div class="lab">RtpPacket</div><div class="val">{{.RtpPacket}}</div></div>
+      <div class="ov-obj"><div class="lab">RtmpPacket</div><div class="val">{{.RtmpPacket}}</div></div>
+      <div class="ov-obj"><div class="lab">Tcp / Udp 服务</div><div class="val">{{.TcpServer}} / {{.UdpServer}}</div></div>
+    </div>
+  </article>
+  {{else}}
+  <div class="ov-panel muted">未配置节点。请在 config.toml 中添加带 toml+json 标签的 Node。</div>
+  {{end}}
+</aside>
+{{end}}

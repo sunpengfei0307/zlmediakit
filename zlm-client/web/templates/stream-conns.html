@@ -1,0 +1,61 @@
+{{define "stream-conns"}}
+<div class="subtbl-wrap expand-detail" id="conns-{{.SID}}">
+  {{if index .Data "media_error"}}<div class="err" role="status">{{index .Data "media_error"}}</div>{{end}}
+  <div class="muted expand-summary">
+    在线状态：
+    {{if index .Data "media_online_known"}}
+      {{if index .Data "media_online"}}<b>在线</b>{{else}}<b>离线</b>{{end}}
+    {{else}}不可用{{end}}
+    {{$info := index .Data "media_info"}}
+    {{with $info}}
+      · 协议 <b>{{if index . "schema"}}{{index . "schema"}}{{else}}-{{end}}</b>
+      · 流 <b>{{if index . "app"}}{{index . "app"}}/{{index . "stream"}}{{else}}-{{end}}</b>
+      · 读取端 <b>{{asStr (index . "readerCount")}} / {{asStr (index . "totalReaderCount")}}</b>
+      · 速率 <b>{{fmtBps (index . "bytesSpeed")}}</b>
+      · 存活 <b>{{fmtDur (index . "aliveSecond")}}</b>
+    {{end}}
+  </div>
+  <table class="subtbl">
+    <thead><tr>
+      <th class="col-id">ID</th><th>方向</th><th>类型</th><th>对端</th><th>本地</th>
+      <th title="推流：源流音视频 PTS 差。拉流：ZLM 无按会话接口">A-V同步</th>
+      <th>说明</th><th>时长</th><th class="col-kick">操作</th>
+    </tr></thead>
+    <tbody>
+      {{range .Rows}}
+      <tr>
+        <td class="col-id muted">{{if asStr (index . "_id")}}{{asStr (index . "_id")}}{{else}}-{{end}}</td>
+        <td>{{asStr (index . "_kind")}}</td>
+        <td>{{asStr (index . "name")}}{{if not (asStr (index . "name"))}}{{asStr (index . "typeid")}}{{end}}{{if not (asStr (index . "name"))}}{{if not (asStr (index . "typeid"))}}{{asStr (index . "schema")}}{{end}}{{end}}</td>
+        <td>{{asStr (index . "peer_ip")}}{{if index . "peer_port"}}:{{asStr (index . "peer_port")}}{{end}}</td>
+        <td>{{asStr (index . "local_ip")}}{{if index . "local_port"}}:{{asStr (index . "local_port")}}{{end}}</td>
+        <td>
+          {{if eq (asStr (index . "_kind")) "拉流"}}
+            <span class="muted" title="ZLM 的 getMediaPlayerList / getAllSession 不返回播放会话的音视频时间戳，拉流只转发源流 PTS">—</span>
+          {{else if index . "_av"}}{{printf "%.0f ms" (asFloat (index . "_av"))}}{{else}}-{{end}}
+        </td>
+        <td>{{asStr (index . "note")}}</td>
+        <td>{{fmtDur (index . "_dur")}}</td>
+        <td class="col-kick">
+          {{if asStr (index . "_id")}}
+          <form class="kick-form" method="post" action="/ui/kick" hx-post="/ui/kick"
+            hx-target="closest .subtbl-wrap" hx-swap="outerHTML"
+            hx-confirm="确认踢出该会话吗？连接将立即中断。" onclick="event.stopPropagation()">
+            <input type="hidden" name="node" value="{{$.NodeID}}" />
+            <input type="hidden" name="id" value="{{asStr (index . "_id")}}" />
+            <input type="hidden" name="vhost" value="{{$.Vhost}}" />
+            <input type="hidden" name="app" value="{{$.App}}" />
+            <input type="hidden" name="stream" value="{{$.Stream}}" />
+            <input type="hidden" name="sid" value="{{$.SID}}" />
+            <button class="ghost" type="submit">踢掉</button>
+          </form>
+          {{else}}<span class="muted">-</span>{{end}}
+        </td>
+      </tr>
+      {{else}}
+      <tr><td class="muted" colspan="9">暂无推拉连接</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}

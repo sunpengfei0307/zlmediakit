@@ -1,0 +1,124 @@
+{{define "content-sources"}}
+<section class="ops-page">
+  <div class="ops-head">
+    <div>
+      <strong>信号转发</strong>
+      <span class="muted">拉流、转推与 FFmpeg；同一时间只展开一种任务</span>
+    </div>
+  </div>
+  <nav class="ops-tabs" aria-label="信号转发类型">
+    <a class="ops-tab{{if eq .Tab "pull"}} is-on{{end}}" href="/sources?tab=pull" hx-get="/sources?tab=pull" hx-target="#content" hx-push-url="true">拉流代理 <span class="chip">{{len .Tasks.Pull.Items}}</span></a>
+    <a class="ops-tab{{if eq .Tab "pusher"}} is-on{{end}}" href="/sources?tab=pusher" hx-get="/sources?tab=pusher" hx-target="#content" hx-push-url="true">推流代理 <span class="chip">{{len .Tasks.Pusher.Items}}</span></a>
+    <a class="ops-tab{{if eq .Tab "ffmpeg"}} is-on{{end}}" href="/sources?tab=ffmpeg" hx-get="/sources?tab=ffmpeg" hx-target="#content" hx-push-url="true">FFmpeg 源 <span class="chip">{{len .Tasks.FFmpeg.Items}}</span></a>
+  </nav>
+  <div class="ops-body cards source-tasks">
+
+  {{if or (not .Tab) (eq .Tab "pull")}}
+  <article class="card source-card">
+    <div class="source-card-head">
+      <div><h3>拉流代理</h3><span class="muted">ZLM 直接拉 RTSP / RTMP / HLS(.m3u8) / HTTP-TS(.ts) / HTTP-FLV(.flv)。HTTP-MP4 等其它 HTTP 实时流会自动改用 FFmpeg 拉到本机 RTMP</span></div>
+      <span class="chip">{{len .Tasks.Pull.Items}} 项</span>
+    </div>
+    {{if .Tasks.Pull.Error}}<p class="status-off" role="status">读取失败：{{.Tasks.Pull.Error}}</p>{{end}}
+    <form method="post" action="/sources/pull/add" hx-post="/sources/pull/add" hx-target="#content" class="form-grid">
+      <input type="hidden" name="view_tab" value="pull">
+      <label class="field" for="pull-vhost"><span>虚拟主机</span><input id="pull-vhost" name="vhost" value="{{formVal .Form "vhost" "__defaultVhost__"}}" required></label>
+      <label class="field" for="pull-app"><span>应用 app</span><input id="pull-app" name="app" value="{{formVal .Form "app" ""}}" placeholder="live" required></label>
+      <label class="field" for="pull-stream"><span>流 stream</span><input id="pull-stream" name="stream" value="{{formVal .Form "stream" ""}}" placeholder="camera-01" required></label>
+      <label class="field field-wide" for="pull-url"><span>源 URL（rtsp / rtmp / http；HTTP-MP4 自动走 FFmpeg）</span><input id="pull-url" name="url" type="text" value="{{formVal .Form "url" ""}}" placeholder="rtsp://camera/live 或 http://host/live/cam.mp4" required></label>
+      <label class="field" for="pull-retry"><span>重试次数（-1..100）</span><input id="pull-retry" name="retry_count" type="number" min="-1" max="100" value="{{formVal .Form "retry_count" "-1"}}"></label>
+      <label class="field" for="pull-timeout"><span>超时秒数（1..120）</span><input id="pull-timeout" name="timeout_sec" type="number" min="1" max="120" value="{{formVal .Form "timeout_sec" "10"}}"></label>
+      <label class="field" for="pull-force"><span>强制覆盖</span><select id="pull-force" name="force"><option value="0" {{if ne (formVal .Form "force" "0") "1"}}selected{{end}}>0 · 否</option><option value="1" {{if eq (formVal .Form "force" "0") "1"}}selected{{end}}>1 · 是</option></select></label>
+      <label class="field" for="pull-rtp"><span>RTP 类型</span><select id="pull-rtp" name="rtp_type"><option value="" {{if eq (formVal .Form "rtp_type" "") ""}}selected{{end}}>默认</option><option value="0" {{if eq (formVal .Form "rtp_type" "") "0"}}selected{{end}}>TCP</option><option value="1" {{if eq (formVal .Form "rtp_type" "") "1"}}selected{{end}}>UDP</option><option value="2" {{if eq (formVal .Form "rtp_type" "") "2"}}selected{{end}}>组播</option></select></label>
+      <div class="source-form-action"><button class="ghost ghost-primary" type="submit">新增拉流代理</button></div>
+    </form>
+    <div class="table-wrap">
+      <table class="js-grid">
+        <thead><tr><th>Key</th><th>Vhost</th><th>App / Stream</th><th>源 URL</th><th>状态</th><th class="col-act">操作</th></tr></thead>
+        <tbody>
+        {{range .Tasks.Pull.Items}}
+          <tr>
+            <td><code>{{index . "key"}}</code></td><td>{{index . "vhost"}}</td>
+            <td>{{index . "app"}} / {{index . "stream"}}</td><td><code>{{index . "url"}}</code></td>
+            <td>{{if index . "_error"}}<span class="status-off">{{index . "_error"}}</span>{{else}}<span class="status-on">已加载</span>{{end}}</td>
+            <td class="col-act"><form method="post" action="/sources/pull/delete" hx-post="/sources/pull/delete" hx-target="#content" hx-confirm="确认删除该拉流代理？"><input type="hidden" name="view_tab" value="pull"><input type="hidden" name="key" value="{{index . "key"}}"><button class="ghost" type="submit">删除</button></form></td>
+          </tr>
+        {{else}}<tr><td colspan="6" class="muted">暂无拉流代理</td></tr>{{end}}
+        </tbody>
+      </table>
+    </div>
+  </article>
+  {{end}}
+
+  {{if or (not .Tab) (eq .Tab "pusher")}}
+  <article class="card source-card">
+    <div class="source-card-head">
+      <div><h3>推流代理</h3><span class="muted">当前节点媒体流 → 外部目标</span></div>
+      <span class="chip">{{len .Tasks.Pusher.Items}} 项</span>
+    </div>
+    {{if .Tasks.Pusher.Error}}<p class="status-off" role="status">读取失败：{{.Tasks.Pusher.Error}}</p>{{end}}
+    <form method="post" action="/sources/pusher/add" hx-post="/sources/pusher/add" hx-target="#content" class="form-grid">
+      <input type="hidden" name="view_tab" value="pusher">
+      <label class="field" for="pusher-schema"><span>输入协议 schema</span><select id="pusher-schema" name="schema" required><option value="rtmp" {{if eq (formVal .Form "schema" "rtmp") "rtmp"}}selected{{end}}>RTMP</option><option value="rtsp" {{if eq (formVal .Form "schema" "rtmp") "rtsp"}}selected{{end}}>RTSP</option><option value="srt" {{if eq (formVal .Form "schema" "rtmp") "srt"}}selected{{end}}>SRT</option><option value="webrtc" {{if eq (formVal .Form "schema" "rtmp") "webrtc"}}selected{{end}}>WebRTC</option></select></label>
+      <label class="field" for="pusher-vhost"><span>虚拟主机</span><input id="pusher-vhost" name="vhost" value="{{formVal .Form "vhost" "__defaultVhost__"}}" required></label>
+      <label class="field" for="pusher-app"><span>应用 app</span><input id="pusher-app" name="app" value="{{formVal .Form "app" ""}}" placeholder="live" required></label>
+      <label class="field" for="pusher-stream"><span>流 stream</span><input id="pusher-stream" name="stream" value="{{formVal .Form "stream" ""}}" placeholder="camera-01" required></label>
+      <label class="field" for="pusher-dst-url"><span>目标 URL（不支持 HTTP）</span><input id="pusher-dst-url" name="dst_url" type="text" value="{{formVal .Form "dst_url" ""}}" placeholder="rtmp://edge/live/camera-01" required></label>
+      <label class="field" for="pusher-retry"><span>重试次数（-1..100）</span><input id="pusher-retry" name="retry_count" type="number" min="-1" max="100" value="{{formVal .Form "retry_count" "-1"}}"></label>
+      <label class="field" for="pusher-timeout"><span>超时秒数（1..120）</span><input id="pusher-timeout" name="timeout_sec" type="number" min="1" max="120" value="{{formVal .Form "timeout_sec" "10"}}"></label>
+      <label class="field" for="pusher-rtp"><span>RTP 类型</span><select id="pusher-rtp" name="rtp_type"><option value="" {{if eq (formVal .Form "rtp_type" "") ""}}selected{{end}}>默认</option><option value="0" {{if eq (formVal .Form "rtp_type" "") "0"}}selected{{end}}>TCP</option><option value="1" {{if eq (formVal .Form "rtp_type" "") "1"}}selected{{end}}>UDP</option><option value="2" {{if eq (formVal .Form "rtp_type" "") "2"}}selected{{end}}>组播</option></select></label>
+      <div class="source-form-action"><button class="ghost ghost-primary" type="submit">新增推流代理</button></div>
+    </form>
+    <div class="table-wrap">
+      <table class="js-grid">
+        <thead><tr><th>Key</th><th>Schema</th><th>App / Stream</th><th>目标 URL</th><th>状态</th><th class="col-act">操作</th></tr></thead>
+        <tbody>
+        {{range .Tasks.Pusher.Items}}
+          <tr>
+            <td><code>{{index . "key"}}</code></td><td>{{index . "schema"}}</td>
+            <td>{{index . "app"}} / {{index . "stream"}}</td><td><code>{{index . "dst_url"}}</code></td>
+            <td>{{if index . "_error"}}<span class="status-off">{{index . "_error"}}</span>{{else}}<span class="status-on">已加载</span>{{end}}</td>
+            <td class="col-act"><form method="post" action="/sources/pusher/delete" hx-post="/sources/pusher/delete" hx-target="#content" hx-confirm="确认删除该推流代理？"><input type="hidden" name="view_tab" value="pusher"><input type="hidden" name="key" value="{{index . "key"}}"><button class="ghost" type="submit">删除</button></form></td>
+          </tr>
+        {{else}}<tr><td colspan="6" class="muted">暂无推流代理</td></tr>{{end}}
+        </tbody>
+      </table>
+    </div>
+  </article>
+  {{end}}
+
+  {{if or (not .Tab) (eq .Tab "ffmpeg")}}
+  <article class="card source-card">
+    <div class="source-card-head">
+      <div><h3>FFmpeg 源</h3><span class="muted">协议或本机文件 → RTMP / RTSP / SRT。命令走 ZLM 默认模板 [ffmpeg] cmd，当前版本不支持多模板</span></div>
+      <span class="chip">{{len .Tasks.FFmpeg.Items}} 项</span>
+    </div>
+    {{if .Tasks.FFmpeg.Error}}<p class="status-off" role="status">读取失败：{{.Tasks.FFmpeg.Error}}</p>{{end}}
+    <form method="post" action="/sources/ffmpeg/add" hx-post="/sources/ffmpeg/add" hx-target="#content" class="form-grid">
+      <input type="hidden" name="view_tab" value="ffmpeg">
+      <label class="field field-wide" for="ffmpeg-src-url"><span>源 URL（http / rtsp / rtmp / file）</span><input id="ffmpeg-src-url" name="src_url" type="text" value="{{formVal .Form "src_url" ""}}" placeholder="http://host/vod/clip.mp4 或 rtsp://camera/live" required></label>
+      <label class="field" for="ffmpeg-dst-url"><span>目标 URL</span><input id="ffmpeg-dst-url" name="dst_url" type="text" value="{{formVal .Form "dst_url" ""}}" placeholder="rtmp://127.0.0.1/live/camera-01" required></label>
+      <label class="field" for="ffmpeg-timeout-ms"><span>超时毫秒（1000..120000）</span><input id="ffmpeg-timeout-ms" name="timeout_ms" type="number" min="1000" max="120000" value="{{formVal .Form "timeout_ms" "10000"}}" required></label>
+      <label class="field" for="ffmpeg-hls"><span>启用 HLS</span><select id="ffmpeg-hls" name="enable_hls"><option value="0" {{if ne (formVal .Form "enable_hls" "0") "1"}}selected{{end}}>0 · 否</option><option value="1" {{if eq (formVal .Form "enable_hls" "0") "1"}}selected{{end}}>1 · 是</option></select></label>
+      <label class="field" for="ffmpeg-mp4"><span>启用 MP4</span><select id="ffmpeg-mp4" name="enable_mp4"><option value="0" {{if ne (formVal .Form "enable_mp4" "0") "1"}}selected{{end}}>0 · 否</option><option value="1" {{if eq (formVal .Form "enable_mp4" "0") "1"}}selected{{end}}>1 · 是</option></select></label>
+      <div class="source-form-action"><button class="ghost ghost-primary" type="submit">新增 FFmpeg 源</button></div>
+    </form>
+    <div class="table-wrap">
+      <table class="js-grid">
+        <thead><tr><th>Key</th><th>源 URL</th><th>目标 URL</th><th>命令</th><th class="col-act">操作</th></tr></thead>
+        <tbody>
+        {{range .Tasks.FFmpeg.Items}}
+          <tr>
+            <td><code>{{index . "key"}}</code></td><td><code>{{index . "src_url"}}</code></td>
+            <td><code>{{index . "dst_url"}}</code></td><td><code>{{index . "cmd"}}</code></td>
+            <td class="col-act"><form method="post" action="/sources/ffmpeg/delete" hx-post="/sources/ffmpeg/delete" hx-target="#content" hx-confirm="确认删除该 FFmpeg 源？"><input type="hidden" name="view_tab" value="ffmpeg"><input type="hidden" name="key" value="{{index . "key"}}"><button class="ghost" type="submit">删除</button></form></td>
+          </tr>
+        {{else}}<tr><td colspan="5" class="muted">暂无 FFmpeg 源</td></tr>{{end}}
+        </tbody>
+      </table>
+    </div>
+  </article>
+  {{end}}
+  </div>
+</section>
+{{end}}

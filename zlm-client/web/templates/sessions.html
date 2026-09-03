@@ -1,0 +1,86 @@
+{{define "content-sessions"}}
+<div class="toolbar">
+  <input name="q" id="qSess" type="search" value="{{.Q}}" placeholder="搜索 IP / 关联流 / 端口"
+    hx-get="/sessions" hx-target="#content" hx-push-url="true" hx-swap="innerHTML"
+    hx-trigger="keyup changed delay:300ms, search"
+    hx-include="[name='sort'],[name='dir'],[name='size']" />
+  <input type="hidden" name="sort" value="{{asStr .Sort}}">
+  <input type="hidden" name="dir" value="{{asStr .Dir}}">
+  {{if .Size}}<input type="hidden" name="size" value="{{.Size}}">{{end}}
+  <form method="post" action="/ui/sessions/kick" hx-post="/ui/sessions/kick" hx-target="#content" hx-swap="innerHTML"
+    hx-confirm="确认按当前过滤条件批量踢出会话吗？至少需要填写对端 IP 或本地端口。">
+    <label for="kickPeerIP">对端 IP</label>
+    <input id="kickPeerIP" name="peer_ip" type="text" placeholder="例如 10.0.0.8" />
+    <label for="kickLocalPort">本地端口</label>
+    <input id="kickLocalPort" name="local_port" type="number" min="1" max="65535" placeholder="例如 1935" />
+    <input type="hidden" name="node" value="{{.NodeID}}" />
+    <input type="hidden" name="view_q" value="{{.Q}}" />
+    <button class="ghost" type="submit">批量踢出</button>
+  </form>
+</div>
+<div class="batch-bar" data-batch-for="sessions">
+  <span class="muted">已选 <b data-batch-count>0</b></span>
+  <form method="post" action="/ui/sessions/kick-selected" hx-post="/ui/sessions/kick-selected" hx-target="#content" hx-swap="innerHTML"
+    hx-confirm="确认踢出当前页勾选的连接？" data-batch-form="sessions">
+    <input type="hidden" name="node" value="{{.NodeID}}" />
+    <input type="hidden" name="view_q" value="{{.Q}}" />
+    {{if .Size}}<input type="hidden" name="view_size" value="{{.Size}}">{{end}}
+    <button class="ghost ghost-danger" type="submit" data-batch-submit disabled>踢出选中</button>
+  </form>
+</div>
+<div class="table-wrap" data-batch-root="sessions">
+  <table class="js-grid">
+    <thead><tr>
+      <th class="col-check"><input type="checkbox" id="batchCheckAll" data-batch-root="sessions" title="全选本页" /></th>
+      <th>节点</th>
+      <th><a class="th-sort{{if eq (asStr .Sort) "role"}} is-on is-{{asStr .Dir}}{{end}}" href="{{sortURL "/sessions" .ListQuery "role" .Sort .Dir}}" hx-get="{{sortURL "/sessions" .ListQuery "role" .Sort .Dir}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">角色</a></th>
+      <th>说明</th><th>连接类型</th>
+      <th><a class="th-sort{{if eq (asStr .Sort) "peer"}} is-on is-{{asStr .Dir}}{{end}}" href="{{sortURL "/sessions" .ListQuery "peer" .Sort .Dir}}" hx-get="{{sortURL "/sessions" .ListQuery "peer" .Sort .Dir}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">对端</a></th>
+      <th>本地</th>
+      <th><a class="th-sort{{if or (eq (asStr .Sort) "media") (eq (asStr .Sort) "stream") (not .Sort)}} is-on is-{{asStr .Dir}}{{end}}" href="{{sortURL "/sessions" .ListQuery "media" .Sort .Dir}}" hx-get="{{sortURL "/sessions" .ListQuery "media" .Sort .Dir}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">关联流</a></th>
+      <th>ID</th><th></th>
+    </tr></thead>
+    <tbody>
+      {{if .Error}}<tr><td class="err" colspan="10">{{.Error}}</td></tr>{{end}}
+      {{range .Groups}}
+      <tr class="app-row">
+        <td class="col-check"></td>
+        <td colspan="9">▾ 关联流：{{.Key}}　{{.Count}} 条连接</td>
+      </tr>
+      {{range .Sessions}}
+      <tr>
+        <td class="col-check">
+          {{if asStr (index . "id")}}
+          <input class="row-check" type="checkbox" value="{{asStr (index . "id")}}" />
+          {{end}}
+        </td>
+        <td>{{$.NodeID}}</td>
+        <td>{{asStr (index . "role")}}</td>
+        <td class="muted">{{asStr (index . "note")}}</td>
+        <td>{{asStr (index . "name")}}{{if not (asStr (index . "name"))}}{{asStr (index . "typeid")}}{{end}}</td>
+        <td>{{asStr (index . "peer_ip")}}{{if index . "peer_port"}}:{{asStr (index . "peer_port")}}{{end}}</td>
+        <td>{{asStr (index . "local_ip")}}{{if index . "local_port"}}:{{asStr (index . "local_port")}}{{end}}</td>
+        <td>{{if asStr (index . "media_key")}}{{asStr (index . "media_key")}}{{else if and (index . "app") (index . "stream")}}{{asStr (index . "app")}}/{{asStr (index . "stream")}}{{else}}-{{end}}</td>
+        <td class="muted">{{asStr (index . "id")}}</td>
+        <td>
+          {{if asStr (index . "id")}}
+          <form method="post" action="/ui/kick" hx-post="/ui/kick" hx-target="#content" hx-swap="innerHTML"
+            hx-confirm="确认踢出该会话吗？连接将立即中断。" style="display:inline">
+            <input type="hidden" name="node" value="{{$.NodeID}}" />
+            <input type="hidden" name="id" value="{{asStr (index . "id")}}" />
+            <input type="hidden" name="from" value="sessions" />
+            <input type="hidden" name="view_q" value="{{$.Q}}" />
+            <button class="ghost" type="submit">踢掉</button>
+          </form>
+          {{end}}
+        </td>
+      </tr>
+      {{end}}
+      {{else}}
+      {{if not .Error}}<tr><td class="muted" colspan="10">当前没有活动连接</td></tr>{{end}}
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{template "table-pager" .Pager}}
+{{end}}

@@ -1,0 +1,25 @@
+[Unit]
+Description=zlm-client
+After=network.target zlm-server.service
+DefaultDependencies=yes
+
+[Service]
+Type=simple
+WorkingDirectory=@DATA@
+Environment=ZLM_ADMIN_CONFIG=@CFG@/zlm-client.toml
+Environment=GOWORK=off
+ExecStart=@BIN@/zlm-client -config @CFG@/zlm-client.toml
+Restart=always
+RestartSec=2
+TimeoutStartSec=15
+TimeoutStopSec=15
+KillMode=control-group
+KillSignal=SIGTERM
+StandardOutput=append:@DATA@/log/zlm-client.out
+StandardError=append:@DATA@/log/zlm-client.out
+SyslogIdentifier=zlm-client
+LimitNOFILE=65535
+@USER_LINE@
+
+[Install]
+WantedBy=@WANTED_BY@

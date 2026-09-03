@@ -1,0 +1,14 @@
+{{define "table-pager"}}
+{{if .}}
+<nav class="table-pager" aria-label="分页">
+  <span class="muted">共 {{.Total}} 条{{if gt .Pages 1}} · 第 {{.Page}}/{{.Pages}} 页{{end}}</span>
+  {{if gt .Pages 1}}
+  {{if .PrevURL}}<a class="ghost" href="{{.PrevURL}}" hx-get="{{.PrevURL}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">上一页</a>{{end}}
+  {{range .Links}}
+  <a class="ghost{{if .On}} is-on{{end}}" href="{{.URL}}" hx-get="{{.URL}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">{{.N}}</a>
+  {{end}}
+  {{if .NextURL}}<a class="ghost" href="{{.NextURL}}" hx-get="{{.NextURL}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">下一页</a>{{end}}
+  {{end}}
+</nav>
+{{end}}
+{{end}}

@@ -1,0 +1,153 @@
+{{define "onvif-panels"}}
+<section class="cards source-tasks proto-workspace">
+  <article class="card proto-guide" aria-labelledby="onvif-how">
+    <h3 id="onvif-how">怎么用</h3>
+    <ol class="proto-steps">
+      <li><b>1. 发现设备</b>填超时和网段前缀后点「开始发现」。结果是 ONVIF 设备服务 URL，不是 RTSP 播放地址。</li>
+      <li><b>2. 核对 RTSP</b>用厂家工具或播放器核对真实 RTSP 后，再填到「确认导入」；本页不会从发现结果自动推断。</li>
+      <li><b>3. 去看流</b>导入成功后到「信号转发 / 直播管理」查看拉流代理，不要把 ONVIF URL 当成播放地址。</li>
+    </ol>
+    {{if not .ONVIFReady}}<p class="status-off" role="status">当前未启用 ONVIF。请在配置管理将 <code>onvif.port</code> 设为非 0，并确认 ZLM 编译了 ENABLE_ONVIF。下面选项已禁用。</p>{{end}}
+  </article>
+  <fieldset class="proto-lock" {{if not .ONVIFReady}}disabled{{end}}>
+  <div class="ops-split proto-split">
+  <article class="card source-card proto-zone">
+    <div class="source-card-head proto-zone-head">
+      <div>
+        <p class="proto-kicker">发现区</p>
+        <h3>ONVIF发现</h3>
+        <span class="muted">主动网络广播。发现结果是设备服务 URL，不一定是 RTSP 播放 URL，也不会自动导入。</span>
+      </div>
+      <span class="chip">{{len .Devices}} 项</span>
+    </div>
+    <form method="post" action="/onvif-webrtc/scan" hx-post="/onvif-webrtc/scan" hx-target="#content" hx-confirm="确认在所填 IPv4 子网执行 ONVIF 主动广播发现？" class="form-grid">
+      <label class="field" for="onvif-timeout"><span>超时 timeout_ms（500..10000）</span><input id="onvif-timeout" name="timeout_ms" type="number" min="500" max="10000" value="3000" required></label>
+      <label class="field field-wide" for="onvif-subnet"><span>三段 IPv4 前缀（可空）</span><input id="onvif-subnet" name="subnet_prefix" placeholder="例如 192.168.1；也可提交完整 IPv4 或 /24 CIDR，服务端统一转为前三段"></label>
+      <div class="source-form-action"><button class="ghost ghost-primary" type="submit" aria-label="开始 ONVIF 主动发现">开始发现</button></div>
+    </form>
+    <div class="table-wrap proto-table">
+      <table class="js-grid">
+        <thead><tr><th>Location</th><th>Name</th><th>Hardware</th><th>设备服务 URL</th></tr></thead>
+        <tbody>
+        {{range .Devices}}
+          <tr><td>{{index . "location"}}</td><td>{{index . "name"}}</td><td>{{index . "hardware"}}</td><td><code>{{index . "onvif_url"}}</code></td></tr>
+        {{else}}<tr><td colspan="4" class="muted">尚未执行发现。结果是设备服务 URL，不会自动变成拉流地址。</td></tr>{{end}}
+        </tbody>
+      </table>
+    </div>
+  </article>
+
+  <article class="card source-card proto-zone">
+    <div class="source-card-head proto-zone-head">
+      <div>
+        <p class="proto-kicker">导入区</p>
+        <h3>确认后导入拉流代理</h3>
+        <span class="muted">请明确填写并确认已验证的 rtsp/rtsps URL；不会从发现结果自动推断。URL 中密码仅用于本次 ZLM 请求，页面和审计反馈会脱敏。</span>
+      </div>
+    </div>
+    <form method="post" action="/onvif-webrtc/import-pull" hx-post="/onvif-webrtc/import-pull" hx-target="#content" hx-confirm="确认把已验证的 RTSP 地址导入为拉流代理？请再次核对 app / stream。" class="form-grid">
+      <label class="field field-wide" for="import-url"><span>已验证的 RTSP/RTSPS URL</span><input id="import-url" name="url" type="url" placeholder="rtsp://user:password@camera/live" required></label>
+      <label class="field" for="import-app"><span>App</span><input id="import-app" name="app" value="live" required></label>
+      <label class="field" for="import-stream"><span>Stream</span><input id="import-stream" name="stream" required></label>
+      <label class="field" for="import-vhost"><span>Vhost</span><input id="import-vhost" name="vhost" value="__defaultVhost__" required></label>
+      <div class="source-form-action"><button class="ghost ghost-primary" type="submit" aria-label="确认导入 RTSP 拉流代理">确认导入</button></div>
+    </form>
+  </article>
+  </div>
+  </fieldset>
+</section>
+{{end}}
+
+{{define "webrtc-panels"}}
+<section class="cards source-tasks proto-workspace">
+  <article class="card proto-guide" aria-labelledby="webrtc-how">
+    <h3 id="webrtc-how">怎么用</h3>
+    <ol class="proto-steps proto-steps-5">
+      <li><b>看直播</b>到「直播管理」打开流，点 <strong>WebRTC</strong>。播放地址是 <code>/index/api/webrtc?app=应用&amp;stream=流名&amp;type=play</code>，不要填进下面的表单。</li>
+      <li><b>Rooms</b>本页 Rooms 是会议房间列表，不是直播列表。没有会议时为空是正常的。</li>
+      <li><b>RoomKeeper</b>只对接外部 WebRTC 信令服务器。没有外部房间就不用添加。</li>
+      <li><b>Proxy Player</b>Key 是代理播放器内部 key，用来查 ICE / 传输详情，不是播放 URL。</li>
+      <li><b>信令边界</b>WHIP / WHEP / webrtc 是信令端点，必须用对应 HTTP 方法，不能当普通视频地址。</li>
+    </ol>
+    {{if not .WebRTCReady}}<p class="status-off" role="status">当前未启用 WebRTC。请在配置管理将 <code>rtc.signalingPort</code> 设为非 0，并确认 ZLM 编译了 ENABLE_WEBRTC。下面选项已禁用。</p>{{end}}
+  </article>
+  <fieldset class="proto-lock" {{if not .WebRTCReady}}disabled{{end}}>
+  <div class="ops-split proto-split">
+  <article class="card source-card proto-zone">
+    <div class="source-card-head proto-zone-head">
+      <div>
+        <p class="proto-kicker">只读</p>
+        <h3>WebRTC Rooms</h3>
+        <span class="muted">只读展示 listWebrtcRooms 的真实 data；读取失败仅影响本区。</span>
+      </div>
+      <span class="chip">{{len .RTC.Rooms.Items}} 项</span>
+    </div>
+    {{if .RTC.Rooms.Error}}<p class="status-off" role="status">Rooms 读取失败：{{.RTC.Rooms.Error}}</p>{{end}}
+    <div class="table-wrap proto-table"><table class="js-grid"><thead><tr><th>Room ID</th><th>详情</th></tr></thead><tbody>
+      {{range .RTC.Rooms.Items}}<tr><td><code>{{index . "room_id"}}</code></td><td class="proto-kv">{{template "proto-kv" .}}</td></tr>
+      {{else}}<tr><td colspan="2" class="muted">还没有 Room。直播播放不用在这里建房间，请到「直播管理」打开流后点 WebRTC。</td></tr>{{end}}
+    </tbody></table></div>
+  </article>
+
+  <div class="proto-col">
+  <article class="card source-card proto-zone">
+    <div class="source-card-head proto-zone-head">
+      <div>
+        <p class="proto-kicker">信令对接</p>
+        <h3>RoomKeepers</h3>
+        <span class="muted">连接外部 WebRTC 信令房间；增删均为审计写操作。</span>
+      </div>
+      <span class="chip">{{len .RTC.Keepers.Items}} 项</span>
+    </div>
+    {{if .RTC.Keepers.Error}}<p class="status-off" role="status">RoomKeepers 读取失败：{{.RTC.Keepers.Error}}</p>{{end}}
+    <form method="post" action="/onvif-webrtc/keeper/add" hx-post="/onvif-webrtc/keeper/add" hx-target="#content" hx-confirm="确认连接所填 WebRTC 信令服务器并注册 RoomKeeper？" class="form-grid">
+      <label class="field" for="keeper-host"><span>信令服务器 Host/IP</span><input id="keeper-host" name="server_host" required></label>
+      <label class="field" for="keeper-port"><span>端口（1..65535）</span><input id="keeper-port" name="server_port" type="number" min="1" max="65535" required></label>
+      <label class="field" for="keeper-room"><span>Room ID</span><input id="keeper-room" name="room_id" required></label>
+      <label class="field" for="keeper-ssl"><span>SSL</span><select id="keeper-ssl" name="ssl"><option value="0">0 · 否</option><option value="1">1 · 是</option></select></label>
+      <div class="source-form-action"><button class="ghost ghost-primary" type="submit" aria-label="添加 WebRTC RoomKeeper">添加 RoomKeeper</button></div>
+    </form>
+    <div class="table-wrap proto-table"><table class="js-grid"><thead><tr><th>Room Key</th><th>Room ID</th><th>详情</th><th class="col-act">操作</th></tr></thead><tbody>
+      {{range .RTC.Keepers.Items}}<tr>
+        <td><code>{{index . "room_key"}}</code></td><td>{{index . "room_id"}}</td><td class="proto-kv">{{template "proto-kv" .}}</td>
+        <td><form method="post" action="/onvif-webrtc/keeper/delete" hx-post="/onvif-webrtc/keeper/delete" hx-target="#content" hx-confirm="确认删除 RoomKeeper {{index . "room_key"}}？" aria-label="删除 RoomKeeper {{index . "room_key"}}"><input type="hidden" name="room_key" value="{{index . "room_key"}}"><button class="ghost" type="submit" aria-label="删除 RoomKeeper {{index . "room_key"}}">删除</button></form></td>
+      </tr>{{else}}<tr><td colspan="4" class="muted">还没有 RoomKeeper。只有对接外部 WebRTC 信令房间时才需要添加。</td></tr>{{end}}
+    </tbody></table></div>
+  </article>
+
+  <article class="card source-card proto-zone">
+    <div class="source-card-head proto-zone-head">
+      <div>
+        <p class="proto-kicker">诊断</p>
+        <h3>Proxy Player详情</h3>
+        <span class="muted">按严格校验的 key 只读查询 getWebrtcProxyPlayerInfo，不提供通用 API 透传。</span>
+      </div>
+    </div>
+    <form method="get" action="/protocols" hx-get="/protocols" hx-target="#content" hx-push-url="true" class="form-grid">
+      <input type="hidden" name="tab" value="webrtc">
+      <label class="field field-wide" for="player-key"><span>WebRTC Proxy Player Key</span><input id="player-key" name="key" value="{{.PlayerKey}}" required></label>
+      <div class="source-form-action"><button class="ghost" type="submit" aria-label="查询 WebRTC Proxy Player 详情">查询详情</button></div>
+    </form>
+    {{if .RTC.Player.Error}}<p class="status-off" role="status">Proxy Player 读取失败：{{.RTC.Player.Error}}</p>{{end}}
+    {{if .RTC.Player.Item}}<div class="proto-kv proto-kv-block" aria-label="WebRTC Proxy Player 详情">{{template "proto-kv" .RTC.Player.Item}}</div>{{else}}<p class="muted">输入 key 后查询真实 transport data。</p>{{end}}
+    <p class="muted proto-note">WHIP / WHEP / webrtc 是协议信令端点，不是普通视频 URL。delete_webrtc 依赖会话返回的一次性 token 且必须使用 DELETE，因此普通管理 CRUD 不接入。</p>
+  </article>
+  </div>
+  </div>
+  </fieldset>
+</section>
+{{end}}
+
+{{define "proto-kv"}}
+<dl>
+{{range $k, $v := .}}
+  {{if and (ne $k "room_id") (ne $k "room_key")}}
+  <div><dt>{{$k}}</dt><dd>{{$v}}</dd></div>
+  {{end}}
+{{end}}
+</dl>
+{{end}}
+
+{{define "content-onvif-webrtc"}}
+{{template "onvif-panels" .}}{{template "webrtc-panels" .}}
+{{end}}

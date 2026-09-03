@@ -1,0 +1,128 @@
+{{define "content-streams"}}
+<div class="toolbar">
+  <input name="q" id="qStream" type="search" value="{{.Q}}" placeholder="搜索 app / stream / 协议 / 编码"
+    hx-get="/streams" hx-target="#content" hx-push-url="true" hx-swap="innerHTML"
+    hx-trigger="keyup changed delay:300ms, search"
+    hx-include="[name='expand'],[name='sort'],[name='dir'],[name='size']" />
+  <input type="hidden" name="expand" value="{{.Expand}}" />
+  <input type="hidden" name="sort" value="{{.Sort}}" />
+  <input type="hidden" name="dir" value="{{.Dir}}" />
+  {{if .Size}}<input type="hidden" name="size" value="{{.Size}}">{{end}}
+</div>
+<div class="stream-split{{if not .ExpandOK}} is-closed{{end}}" id="streamSplit" data-left-min="360">
+<div class="stream-table-frame">
+  <div class="table-wrap">
+    <table class="stream-table">
+    <thead><tr>
+      <th class="col-name"><a class="th-sort{{if or (eq .Sort "name") (not .Sort)}} is-on is-{{.Dir}}{{end}}" href="{{sortURL "/streams" .ListQuery "name" .Sort .Dir}}" hx-get="{{sortURL "/streams" .ListQuery "name" .Sort .Dir}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">流名称</a></th>
+      <th><a class="th-sort{{if or (eq .Sort "codec") (eq .Sort "video_codec")}} is-on is-{{.Dir}}{{end}}" href="{{sortURL "/streams" .ListQuery "codec" .Sort .Dir}}" hx-get="{{sortURL "/streams" .ListQuery "codec" .Sort .Dir}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">视频编码</a></th>
+      <th>分辨率</th><th>帧率</th><th>GOP</th>
+      <th>视频码率</th><th>音频编码</th><th>采样率</th><th>声道</th><th>音频码率</th>
+      <th><a class="th-sort{{if eq .Sort "in_bps"}} is-on is-{{.Dir}}{{end}}" href="{{sortURL "/streams" .ListQuery "in_bps" .Sort .Dir}}" hx-get="{{sortURL "/streams" .ListQuery "in_bps" .Sort .Dir}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">网络输入</a></th>
+      <th><a class="th-sort{{if eq .Sort "out_bps"}} is-on is-{{.Dir}}{{end}}" href="{{sortURL "/streams" .ListQuery "out_bps" .Sort .Dir}}" hx-get="{{sortURL "/streams" .ListQuery "out_bps" .Sort .Dir}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">网络输出</a></th>
+      <th>读取大小</th>
+      <th><a class="th-sort{{if eq .Sort "status"}} is-on is-{{.Dir}}{{end}}" href="{{sortURL "/streams" .ListQuery "status" .Sort .Dir}}" hx-get="{{sortURL "/streams" .ListQuery "status" .Sort .Dir}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">状态</a></th>
+      <th><a class="th-sort{{if or (eq .Sort "alive") (eq .Sort "duration")}} is-on is-{{.Dir}}{{end}}" href="{{sortURL "/streams" .ListQuery "alive" .Sort .Dir}}" hx-get="{{sortURL "/streams" .ListQuery "alive" .Sort .Dir}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">时长</a></th>
+      <th><a class="th-sort{{if or (eq .Sort "schema") (eq .Sort "origin_schema")}} is-on is-{{.Dir}}{{end}}" href="{{sortURL "/streams" .ListQuery "schema" .Sort .Dir}}" hx-get="{{sortURL "/streams" .ListQuery "schema" .Sort .Dir}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">推流协议</a></th>
+      <th class="col-pull">拉流协议</th>
+      <th class="col-clients"><a class="th-sort{{if or (eq .Sort "viewers") (eq .Sort "clients")}} is-on is-{{.Dir}}{{end}}" href="{{sortURL "/streams" .ListQuery "viewers" .Sort .Dir}}" hx-get="{{sortURL "/streams" .ListQuery "viewers" .Sort .Dir}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">拉流客户端</a></th>
+      <th class="col-act">预览</th>
+    </tr></thead>
+    <tbody>
+      {{if .Error}}<tr><td class="err" colspan="19">{{.Error}}</td></tr>{{end}}
+      {{range .Groups}}
+      <tr class="app-row" data-app="{{.App}}">
+        <td class="col-name">▾ app：{{.App}}　{{.Count}} 路流</td>
+        <td colspan="15"></td>
+        <td class="col-pull"></td>
+        <td class="col-clients"></td><td class="col-act"></td>
+      </tr>
+      {{range .Streams}}
+      {{$sid := printf "%s|%s|%s|%s" $.NodeID (asStr (index . "vhost")) (asStr (index . "app")) (asStr (index . "stream"))}}
+      <tr class="stream-row{{if eq $.Expand $sid}} is-open{{end}}" data-sid="{{$sid}}"
+        hx-get="{{if eq $.Expand $sid}}{{withQuery "/streams" $.ListQuery "expand" ""}}{{else}}{{withQuery "/streams" $.ListQuery "expand" $sid}}{{end}}"
+        hx-trigger="click[!event.target.closest('button,a,form')]"
+        hx-target="#content" hx-push-url="true" hx-swap="innerHTML">
+        <td class="col-name">
+          <div class="snap-wrap">
+            <img class="snap-thumb" alt="" loading="lazy"
+              src="/api/node/{{$.NodeID}}/snap?app={{asStr (index . "app")}}&amp;stream={{asStr (index . "stream")}}"
+              onerror="this.style.visibility='hidden'" />
+            <div>
+              <b>{{asStr (index . "stream")}}</b>
+              <div class="muted">{{$.NodeID}} · {{asStr (index . "originTypeStr")}} {{asStr (index . "origin_peer")}}</div>
+            </div>
+          </div>
+        </td>
+        <td>{{asStr (index . "video_codec")}}</td>
+        <td>{{if and (index . "width") (index . "height")}}{{asStr (index . "width")}}x{{asStr (index . "height")}}{{else}}-{{end}}</td>
+        <td>{{asStr (index . "fps")}}</td>
+        <td>{{fmtGop (index . "gop_interval_ms")}}</td>
+        <td>{{fmtBps (index . "video_bps")}}</td>
+        <td>{{asStr (index . "audio_codec")}}</td>
+        <td>{{asStr (index . "sample_rate")}}</td>
+        <td>{{asStr (index . "channels")}}</td>
+        <td>{{fmtBps (index . "audio_bps")}}</td>
+        <td>{{fmtBps (index . "in_bps")}}</td>
+        <td>{{fmtBps (index . "out_bps")}}</td>
+        <td>{{fmtBytes (index . "read_size")}}</td>
+        <td class="{{if eq (asStr (index . "status")) "wait"}}status-off{{else}}status-on{{end}}">{{if eq (asStr (index . "status")) "wait"}}等待{{else}}活跃{{end}}</td>
+        <td>{{fmtDur (index . "aliveSecond")}}</td>
+        <td>{{asStr (index . "origin_schema")}}</td>
+        <td class="col-pull">
+          {{range index . "pull_schemas"}}<span class="chip">{{.}}</span>{{else}}-{{end}}
+        </td>
+        <td class="col-clients">{{asStr (index . "totalReaderCount")}}</td>
+        <td class="col-act">
+          <div class="col-act-stack">
+            <button class="ghost btn-play" type="button" data-play="{{$sid}}" onclick="event.preventDefault();event.stopPropagation();window.zlmPlay&&window.zlmPlay(this)">播放</button>
+            <form method="post" action="/ui/streams/close" hx-post="/ui/streams/close" hx-target="#content" hx-swap="innerHTML"
+              hx-confirm="确认关闭该流的所有协议实例吗？此操作会中断当前观看连接。" onclick="event.stopPropagation()">
+              <input type="hidden" name="node" value="{{$.NodeID}}" />
+              <input type="hidden" name="vhost" value="{{asStr (index . "vhost")}}" />
+              <input type="hidden" name="app" value="{{asStr (index . "app")}}" />
+              <input type="hidden" name="stream" value="{{asStr (index . "stream")}}" />
+              <input type="hidden" name="view_q" value="{{$.Q}}" />
+              <input type="hidden" name="view_sort" value="{{$.Sort}}" />
+              <input type="hidden" name="view_dir" value="{{$.Dir}}" />
+              <input type="hidden" name="view_expand" value="{{$.Expand}}" />
+              <button class="ghost" type="submit" aria-label="关闭流 {{asStr (index . "app")}}/{{asStr (index . "stream")}}">关闭</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {{end}}
+      {{else}}
+      {{if not .Error}}<tr><td class="muted" colspan="19">ZLM 在线，但当前没有正在发布的流</td></tr>{{end}}
+      {{end}}
+    </tbody>
+    </table>
+  </div>
+  <div class="stream-x-scroll" role="region" aria-label="流指标横向滚动条" tabindex="0">
+    <div class="stream-x-scroll-space"></div>
+  </div>
+</div>
+<button class="stream-split-handle" type="button" aria-label="拖拽调整左右宽度"></button>
+<aside class="stream-detail-pane" aria-label="推拉会话">
+  <div class="stream-detail-head">
+    <div>
+      <strong>推拉会话</strong>
+      {{if .ExpandOK}}<div class="muted">{{.ExpandApp}}/{{.ExpandStream}}</div>{{end}}
+    </div>
+    {{if .ExpandOK}}
+    <a class="ghost" href="{{withQuery "/streams" .ListQuery "expand" ""}}"
+      hx-get="{{withQuery "/streams" .ListQuery "expand" ""}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">收起</a>
+    {{end}}
+  </div>
+  <div class="stream-detail-body" id="streamDetail">
+    {{if .ExpandOK}}
+    <div hx-get="/ui/stream-conns?node={{if .ExpandNode}}{{.ExpandNode}}{{else}}{{.NodeID}}{{end}}&vhost={{.ExpandVhost}}&app={{.ExpandApp}}&stream={{.ExpandStream}}&sid={{.Expand}}"
+      hx-trigger="load" hx-swap="innerHTML">加载推拉流详情...</div>
+    {{else}}
+    <div class="ops-empty">点击左侧流，在此查看推拉会话与踢人操作</div>
+    {{end}}
+  </div>
+</aside>
+</div>
+{{template "table-pager" .Pager}}
+{{end}}

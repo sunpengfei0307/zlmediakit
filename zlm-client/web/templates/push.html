@@ -1,0 +1,56 @@
+{{define "content-push"}}
+<div class="push-studio">
+  <div class="push-stage">
+    <div class="push-monitor">
+      <div class="mon-head"><b>预览</b><span>本地 PREVIEW</span></div>
+      <div class="mon-screen">
+        <video id="localVideo" controls autoplay muted playsinline></video>
+      </div>
+    </div>
+    <div class="push-monitor">
+      <div class="mon-head"><b>节目</b><span>远端 / 回显 PROGRAM</span></div>
+      <div class="mon-screen">
+        <video id="remoteVideo" controls autoplay playsinline></video>
+      </div>
+    </div>
+  </div>
+  <aside class="push-dock">
+    <div class="push-go">
+      <button class="ghost push-start" id="btnPushStart" type="button">开始</button>
+      <button class="ghost" id="btnPushStop" type="button">停止</button>
+    </div>
+    <div class="push-live-status" id="pushStatus">未开始</div>
+    <div class="push-hint muted" id="pushSecureHint" data-https="{{.HTTPSPort}}">正在检测浏览器权限…</div>
+
+    <section class="dock-sec">
+      <h4>推流参数</h4>
+      <label class="field"><span>app</span><input id="pushApp" value="live" /></label>
+      <label class="field"><span>stream</span><input id="pushStream" value="webcam" /></label>
+      <label class="field"><span>方式</span>
+        <select id="pushType">
+          <option value="push">push 推流</option>
+          <option value="play">play 播放</option>
+          <option value="echo">echo 回显（先推再拉）</option>
+        </select>
+      </label>
+      <label class="field"><span>WHEP / WebRTC 地址</span>
+        <input id="pushPlayUrl" placeholder="play 时粘贴，不能当普通视频 URL 打开" />
+      </label>
+    </section>
+
+    <section class="dock-sec">
+      <h4>采集设备</h4>
+      <div class="dev-row">
+        <label class="dev-check"><input type="checkbox" id="pushCam" checked /> 摄像头</label>
+        <select id="pushCamId"><option value="">默认摄像头</option></select>
+      </div>
+      <div class="dev-row">
+        <label class="dev-check"><input type="checkbox" id="pushMic" /> 麦克风</label>
+        <select id="pushMicId"><option value="">默认麦克风</option></select>
+      </div>
+      <label class="dev-check"><input type="checkbox" id="pushScreen" /> 屏幕 / 窗口</label>
+      <button class="ghost" id="btnPushDevices" type="button">刷新设备</button>
+    </section>
+  </aside>
+</div>
+{{end}}

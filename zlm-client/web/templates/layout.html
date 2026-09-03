@@ -1,0 +1,137 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ZLM 运维后台</title>
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('zlm-theme') === 'light' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', t);
+        document.documentElement.style.colorScheme = t;
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            bg: "#10140f",
+            panel: "#1a2118",
+            line: "#2c3a28",
+            ink: "#e7f0df",
+            muted: "#8aa07a",
+            accent: "#d4ff3f",
+            warn: "#ffb020",
+            bad: "#ff5d4a",
+            ok: "#7dffb3"
+          }
+        }
+      }
+    };
+  </script>
+  <link rel="stylesheet" href="/static/theme.css?v=ops-layout-48" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator.min.css" />
+  <script src="/static/mpegts.min.js"></script>
+  <script src="/static/hls.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dashjs@4.7.4/dist/dash.all.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
+  <script src="/static/htmx.min.js"></script>
+</head>
+<body data-page="{{.Active}}" data-node="{{.NodeID}}" data-https="{{.HTTPSPort}}" data-http-port="{{.HTTPPort}}" data-dash="{{if .EnableDash}}1{{else}}0{{end}}">
+  <header>
+    <div class="logo">ZLM <b>运维后台</b></div>
+    <nav class="nav-track">
+      <a href="/" hx-get="/" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "overview"}}active{{end}}">系统概览</a>
+      <a href="/streams" hx-get="/streams" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "streams"}}active{{end}}">直播管理</a>
+      <a href="/sessions" hx-get="/sessions" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "sessions"}}active{{end}}">连接管理</a>
+      <a href="/sources" hx-get="/sources" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "sources"}}active{{end}}">信号转发</a>
+      <a href="/protocols" hx-get="/protocols" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "protocols"}}active{{end}}">协议管理</a>
+      <a href="/files" hx-get="/files" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "files"}}active{{end}}">录制管理</a>
+      <a href="/config" hx-get="/config" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "config"}}active{{end}}">配置管理</a>
+      <a href="/push" hx-get="/push" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "push"}}active{{end}}">推流管理（RTC）</a>
+      <a href="/events" hx-get="/events" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if or (eq .Active "events") (eq .Active "logs")}}active{{end}}">事件 / 日志</a>
+    </nav>
+    <div class="grow"></div>
+    <div class="theme-switch" role="group" aria-label="主题">
+      <button type="button" data-theme-set="light" title="亮色主题">亮色</button>
+      <button type="button" data-theme-set="dark" title="暗色主题">暗色</button>
+    </div>
+    <button class="ghost" id="btnRefresh" type="button">刷新</button>
+    {{if .LoginUser}}
+    <details class="user-menu" id="userMenu">
+      <summary title="用户管理">{{.LoginUser}}</summary>
+      <div class="user-menu-panel">
+        <a href="/logout">退出</a>
+      </div>
+    </details>
+    {{end}}
+  </header>
+  <main>
+    <div id="content" class="page-{{.Active}}" hx-history-elt>
+      {{if eq .Active "overview"}}{{template "content-overview" .}}{{end}}
+      {{if eq .Active "streams"}}{{template "content-streams" .}}{{end}}
+      {{if eq .Active "sessions"}}{{template "content-sessions" .}}{{end}}
+      {{if eq .Active "sources"}}{{template "content-sources" .}}{{end}}
+      {{if eq .Active "protocols"}}{{template "content-protocols" .}}{{end}}
+      {{if eq .Active "files"}}{{template "content-files" .}}{{end}}
+      {{if eq .Active "config"}}{{template "content-config" .}}{{end}}
+      {{if eq .Active "push"}}{{template "content-push" .}}{{end}}
+      {{if eq .Active "events"}}{{template "content-events" .}}{{end}}
+      {{if eq .Active "logs"}}{{template "content-logs" .}}{{end}}
+    </div>
+  </main>
+  <div class="overlay" id="overlay">
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="playTitle">预览</h3>
+        <button class="ghost" id="closePlay" type="button">关闭</button>
+      </div>
+      <div class="tabs" id="protoTabs"></div>
+      <div class="player-stage">
+        <div id="playStatus" class="player-status">选择协议开始播放</div>
+        <div class="player-video-wrap">
+          <video id="video" controls autoplay muted playsinline></video>
+          <div class="vlc-hint" id="vlcHint">
+            <b id="vlcHintTitle">浏览器不支持该协议预览播放</b>
+            <div id="vlcHintBody">请复制画面顶部播放地址，用 VLC / ffplay 打开：媒体 → 打开网络串流</div>
+            <button class="ghost" type="button" id="copyVlc">复制播放地址</button>
+          </div>
+          <div class="float-bar" id="floatBar">
+            <span class="float-proto" id="floatProto">协议</span>
+            <code id="floatUrl"></code>
+            <button class="ghost" type="button" id="floatCopy">复制</button>
+          </div>
+        </div>
+      </div>
+      <div class="extra-links" id="extraLinks" hidden></div>
+      <div class="media-groups" id="mediaStats"></div>
+    </div>
+  </div>
+  <div class="overlay" id="fileOverlay">
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="fileTitle">文件预览</h3>
+        <button class="ghost" id="closeFile" type="button">关闭</button>
+      </div>
+      <div class="player-stage">
+        <div id="filePlayStatus" class="player-status">准备播放</div>
+        <div class="player-video-wrap" id="fileStage">
+          <video id="fileVideo" controls autoplay playsinline></video>
+          <img id="fileImage" alt="" />
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="/static/app.js?v=ops-layout-48"></script>
+</body>
+</html>
+{{end}}

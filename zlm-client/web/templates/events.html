@@ -1,0 +1,44 @@
+{{define "content-events"}}
+<section class="ops-page">
+  <div class="ops-head">
+    <div>
+      <strong>事件 / 日志</strong>
+      <span class="muted">Hook 回调与节点运行日志，同一页切换查看</span>
+    </div>
+  </div>
+  <nav class="ops-tabs" aria-label="事件与日志">
+    <a class="ops-tab{{if ne .ObsTab "logs"}} is-on{{end}}" href="/events" hx-get="/events" hx-target="#content" hx-push-url="true">事件 Hook</a>
+    <a class="ops-tab{{if eq .ObsTab "logs"}} is-on{{end}}" href="/logs" hx-get="/logs" hx-target="#content" hx-push-url="true">运行日志</a>
+  </nav>
+  <div class="ops-body">
+    {{if eq .ObsTab "logs"}}
+      {{template "content-logs-inner" .}}
+    {{else}}
+      {{template "content-events-inner" .}}
+    {{end}}
+  </div>
+</section>
+{{end}}
+
+{{define "content-events-inner"}}
+<div class="toolbar">
+  <select id="eventKind">
+    <option value="">全部事件</option>
+    {{range index .Events "names"}}
+    <option value="{{.}}">{{.}}</option>
+    {{end}}
+  </select>
+  <input id="qEvent" type="search" placeholder="过滤 hook 关键字（事件名 / 流 / IP）" />
+  <span class="muted" id="eventCount"></span>
+</div>
+<div class="log pretty-scroll" id="eventLog">
+  {{range index .Events "events"}}
+  <div class="row hook-row" data-event="{{.Event}}" data-hay="{{.Time}} {{.Event}} {{.Server}} {{trunc (printf "%v" .Body) 400}}">
+    <b>{{.Time}}</b> <span class="chip">{{.Event}}</span> {{.Server}} <span class="muted">{{trunc (printf "%v" .Body) 220}}</span>
+  </div>
+  {{else}}
+  <div class="muted" id="eventNone">尚无 hook 记录。运维台已默认实现全部 ZLM Hook，启动后会写入空的 hook.on_* 地址并打印流启动/停止/异常回调。</div>
+  {{end}}
+  <div class="muted" id="eventEmpty" hidden>没有匹配的 hook 事件</div>
+</div>
+{{end}}

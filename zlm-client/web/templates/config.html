@@ -1,0 +1,301 @@
+{{define "content-config"}}
+{{$node := index .Cfg "node"}}
+<form id="cfgForm" hidden></form>
+<div class="cfg-page">
+<div class="toolbar glass-toolbar">
+  <label class="cfg-search-wrap">
+    <input id="cfgSearch" type="search" placeholder="搜索配置（名称 / key / 值）" autocomplete="off" />
+  </label>
+  <span class="muted" id="cfgSearchHint"></span>
+  <span class="cfg-legend" title="底色区分配置来源">
+    <i class="ops"></i>运维台
+    <i class="zlm"></i>ZLM 自身
+  </span>
+  {{template "cfg-hint" .}}
+</div>
+{{if ne (printf "%v" (index .Cfg "code")) "0"}}
+<div class="err">{{asStr (index .Cfg "msg")}}</div>
+{{end}}
+
+<section class="cfg-zone cfg-zone-ops">
+  <header class="cfg-zone-head">
+    <div>
+      <h2>运维台</h2>
+      <p>监控路径、落盘与 DASH，保存后写本地配置并即时生效</p>
+    </div>
+    <div class="cfg-zone-actions">
+      <a class="ghost" href="/config" hx-get="/config" hx-target="#content" hx-push-url="true">加载</a>
+      <button class="ghost ghost-primary" type="submit" form="opsForm" id="opsSaveBtn" data-cfg-save="ops" disabled>保存</button>
+    </div>
+  </header>
+  <div class="cfg-split cfg-split-ops pretty-scroll">
+  <form id="opsForm" class="cfg-ops-form" hx-post="/ui/config/ops" hx-target="#content" hx-swap="innerHTML">
+    <article class="cfg-card">
+      <div class="cfg-block-title">监控的 ZLM 工作目录 <span class="cfg-src">运维台</span></div>
+      <p class="cfg-block-hint">保存后刷新 API 端口，不重启 ZLM</p>
+      <div class="cfg-fields cfg-cols-2">
+        <label class="cfg-field cfg-span-2 {{if index $.OpsErr "root"}}cfg-bad{{end}}">
+          <span>工作目录 root</span>
+          <input id="monRoot" name="root" placeholder="/data/.../zlm-server" value="{{index $.Ops "root"}}" />
+          {{if index $.OpsErr "root"}}<span class="cfg-err">{{index $.OpsErr "root"}}</span>{{end}}
+        </label>
+        <label class="cfg-field cfg-span-2 {{if index $.OpsErr "bin"}}cfg-bad{{end}}">
+          <span>MediaServer 二进制</span>
+          <input id="monBin" name="bin" value="{{index $.Ops "bin"}}" />
+          {{if index $.OpsErr "bin"}}<span class="cfg-err">{{index $.OpsErr "bin"}}</span>{{end}}
+        </label>
+        <label class="cfg-field {{if index $.OpsErr "api"}}cfg-bad{{end}}">
+          <span>API</span>
+          <input id="monApi" name="api" placeholder="http://127.0.0.1:8090" value="{{index $.Ops "api"}}" />
+          {{if index $.OpsErr "api"}}<span class="cfg-err">{{index $.OpsErr "api"}}</span>{{end}}
+        </label>
+        <label class="cfg-field">
+          <span>写回</span>
+          <span class="cfg-check"><input type="checkbox" name="persist" value="1" {{if $.OpsPersist}}checked{{end}} />config.toml</span>
+        </label>
+        <label class="cfg-field cfg-span-2 {{if index $.OpsErr "ini"}}cfg-bad{{end}}">
+          <span>config.ini</span>
+          <input id="monIni" name="ini" value="{{index $.Ops "ini"}}" />
+          {{if index $.OpsErr "ini"}}<span class="cfg-err">{{index $.OpsErr "ini"}}</span>{{end}}
+        </label>
+        <label class="cfg-field cfg-span-2 {{if index $.OpsErr "log_dir"}}cfg-bad{{end}}">
+          <span>日志目录</span>
+          <input id="monLog" name="log_dir" value="{{index $.Ops "log_dir"}}" />
+          {{if index $.OpsErr "log_dir"}}<span class="cfg-err">{{index $.OpsErr "log_dir"}}</span>{{end}}
+        </label>
+      </div>
+    </article>
+    <article class="cfg-card">
+      <div class="cfg-block-title">录制 / HLS 切片落盘 <span class="cfg-src">运维台</span></div>
+      <p class="cfg-block-hint">多数场景关掉虚拟主机，磁盘上就只有 live/ 和 mp4/，不会出现 __defaultVhost__。live/{app}/{stream}/ 是给播放器用的滚动切片（查问题可短时回看，到期自动清）；文件页「开始录制」才是正式录像，写在 mp4/，不会跟着清。dash/flv/hls/rec/ts 是空壳，启动时会删。定时截图由运维台 Go 服务读取在线流并调用 FFmpeg 归档；ZLM 自带 getSnap 只是按需 API，缓存目录是 md5(url)，不能改成按流名归档。</p>
+      <div class="cfg-fields cfg-cols-2">
+        <label class="cfg-field cfg-span-2 {{if index $.OpsErr "base"}}cfg-bad{{end}}">
+          <span>落盘根目录</span>
+          <input id="mediaPathBase" name="base" value="{{index $.Ops "base"}}" />
+          {{if index $.OpsErr "base"}}<span class="cfg-err">{{index $.OpsErr "base"}}</span>{{end}}
+        </label>
+        <label class="cfg-field">
+          <span>目录浏览 dirMenu</span>
+          <span class="cfg-check"><input type="checkbox" checked disabled />8090 根目录列出文件</span>
+        </label>
+        <label class="cfg-field {{if index $.OpsErr "live_keep_sec"}}cfg-bad{{end}}">
+          <span>直播切片保留秒数 <i>30-86400</i></span>
+          <input name="live_keep_sec" type="number" min="30" max="86400" step="1" required
+            placeholder="有效范围 30-86400 秒"
+            title="有效范围 30-86400 秒，默认 600"
+            value="{{index $.Ops "live_keep_sec"}}" />
+          {{if index $.OpsErr "live_keep_sec"}}<span class="cfg-err" data-server="1">{{index $.OpsErr "live_keep_sec"}}</span>{{end}}
+        </label>
+        <label class="cfg-field">
+          <span>当前 HLS 目录</span>
+          <input id="curHlsPath" readonly value="{{with $node}}{{.HLSSave}}{{end}}" />
+        </label>
+        <label class="cfg-field">
+          <span>当前 MP4 目录</span>
+          <input id="curMp4Path" readonly value="{{with $node}}{{.MP4Save}}{{end}}" />
+        </label>
+        <label class="cfg-field">
+          <span>自动截图</span>
+          <span class="cfg-check">
+            <input type="checkbox" name="enable_snap" value="1" {{if $.EnableSnap}}checked{{end}} />开启定时截图
+          </span>
+        </label>
+        <label class="cfg-field {{if index $.OpsErr "snap_interval"}}cfg-bad{{end}}">
+          <span>截图间隔秒数 <i>5-300</i></span>
+          <input name="snap_interval" type="number" min="5" max="300" step="1" required
+            placeholder="有效范围 5-300 秒"
+            title="勾选后由运维台 Go 服务按间隔截图并落盘"
+            value="{{index $.Ops "snap_interval"}}" />
+          {{if index $.OpsErr "snap_interval"}}<span class="cfg-err" data-server="1">{{index $.OpsErr "snap_interval"}}</span>{{end}}
+        </label>
+        <label class="cfg-field cfg-span-2">
+          <span>截图保存路径</span>
+          <input readonly value="/data/zlm/snap/{stream}/{yyyy-MM-dd}/{HHmmss}.jpg" />
+        </label>
+      </div>
+    </article>
+    <article class="cfg-card">
+      <div class="cfg-block-title">DASH 转封装 <span class="cfg-src">运维台</span></div>
+      <p class="cfg-block-hint">ffmpeg 拉本机 RTMP，MPD 写到 /data/zlm/{app}/{stream}/dash.mpd（与 8090 路径一致）</p>
+      <div class="cfg-fields cfg-cols-2">
+        <label class="cfg-field">
+          <span>自动转封装</span>
+          <span class="cfg-check">
+            <input type="checkbox" name="enable_dash" value="1" {{if $.EnableDash}}checked{{end}} />开启 DASH
+          </span>
+        </label>
+        <label class="cfg-field cfg-span-2 {{if index $.OpsErr "ffmpeg"}}cfg-bad{{end}}">
+          <span>FFmpeg 路径</span>
+          <input name="ffmpeg" value="{{index $.Ops "ffmpeg"}}" placeholder="/data/sunpf/ffmpeg-builds/build/release/bin/ffmpeg" />
+          {{if index $.OpsErr "ffmpeg"}}<span class="cfg-err">{{index $.OpsErr "ffmpeg"}}</span>{{end}}
+        </label>
+      </div>
+    </article>
+  </form>
+
+  <section class="cfg-zone-advanced" aria-labelledby="adv-ops-title">
+    <header class="cfg-zone-head">
+      <div>
+        <h2 id="adv-ops-title">高级操作</h2>
+        <p>服务重启、受限目录删除和模板化广播；全部需要二次确认并写入审计。不开放任意文件/二进制下载（downloadFile / downloadBin）。</p>
+      </div>
+    </header>
+    <div class="cfg-split cfg-cols-2">
+      <article class="cfg-card">
+        <div class="cfg-block-title">重启 MediaServer</div>
+        <p class="cfg-block-hint">仅重启当前节点 ZLM 进程。Windows 会拉起同名进程；非 Daemon 模式可能直接退出。不会通过通用 API 透传。</p>
+        <form method="post" action="/config/advanced/restart" hx-post="/config/advanced/restart" hx-target="#content" hx-swap="innerHTML"
+          hx-confirm="确认重启当前节点 MediaServer？播放将中断。">
+          <button class="ghost ghost-danger" type="submit">重启服务</button>
+        </form>
+      </article>
+      <article class="cfg-card">
+        <div class="cfg-block-title">删除受限录像目录</div>
+        <p class="cfg-block-hint">只允许删除默认录像根下某一天（YYYY-MM-DD）的目录或其中单个 mp4，不能指定 customized_path。</p>
+        <form class="cfg-fields cfg-cols-2" method="post" action="/config/advanced/delete-record-dir" hx-post="/config/advanced/delete-record-dir" hx-target="#content" hx-swap="innerHTML"
+          hx-confirm="确认删除该日期的受限录像目录？此操作不可恢复。">
+          <label class="cfg-field" for="adv-record-vhost"><span>vhost</span>
+            <input id="adv-record-vhost" name="vhost" value="__defaultVhost__" />
+          </label>
+          <label class="cfg-field" for="adv-record-app"><span>app</span>
+            <input id="adv-record-app" name="app" required />
+          </label>
+          <label class="cfg-field" for="adv-record-stream"><span>stream</span>
+            <input id="adv-record-stream" name="stream" required />
+          </label>
+          <label class="cfg-field" for="adv-record-period"><span>日期 period</span>
+            <input id="adv-record-period" name="period" placeholder="YYYY-MM-DD" required />
+          </label>
+          <label class="cfg-field cfg-span-2" for="adv-record-name"><span>可选文件 name</span>
+            <input id="adv-record-name" name="name" placeholder="clip.mp4" />
+          </label>
+          <div class="cfg-field cfg-span-2">
+            <button class="ghost ghost-danger" type="submit">删除录像目录</button>
+          </div>
+        </form>
+      </article>
+      <article class="cfg-card">
+        <div class="cfg-block-title">删除受限截图目录</div>
+        <p class="cfg-block-hint">只删除 ZLM snapRoot 下该流的 jpg；填写文件名则只删单个文件，留空则删该流截图目录。</p>
+        <form class="cfg-fields cfg-cols-2" method="post" action="/config/advanced/delete-snap-dir" hx-post="/config/advanced/delete-snap-dir" hx-target="#content" hx-swap="innerHTML"
+          hx-confirm="确认删除受限截图目录或文件？此操作不可恢复。">
+          <label class="cfg-field" for="adv-snap-vhost"><span>vhost</span>
+            <input id="adv-snap-vhost" name="vhost" value="__defaultVhost__" />
+          </label>
+          <label class="cfg-field" for="adv-snap-app"><span>app</span>
+            <input id="adv-snap-app" name="app" required />
+          </label>
+          <label class="cfg-field" for="adv-snap-stream"><span>stream</span>
+            <input id="adv-snap-stream" name="stream" required />
+          </label>
+          <label class="cfg-field" for="adv-snap-file"><span>可选文件 file</span>
+            <input id="adv-snap-file" name="file" placeholder="latest.jpg" />
+          </label>
+          <div class="cfg-field cfg-span-2">
+            <button class="ghost ghost-danger" type="submit">删除截图目录</button>
+          </div>
+        </form>
+      </article>
+      <article class="cfg-card">
+        <div class="cfg-block-title">模板化广播</div>
+        <p class="cfg-block-hint">向指定流的播放端发送预设文本。notice 仅允许 1-200 字纯文本，禁止 HTML。</p>
+        <form class="cfg-fields cfg-cols-2" method="post" action="/config/advanced/broadcast" hx-post="/config/advanced/broadcast" hx-target="#content" hx-swap="innerHTML"
+          hx-confirm="确认向该流发送模板广播？">
+          <label class="cfg-field" for="adv-broadcast-schema"><span>schema</span>
+            <select id="adv-broadcast-schema" name="schema">
+              <option value="rtmp">rtmp</option>
+              <option value="rtsp">rtsp</option>
+              <option value="fmp4">fmp4</option>
+              <option value="ts">ts</option>
+              <option value="hls">hls</option>
+              <option value="hls.fmp4">hls.fmp4</option>
+              <option value="rtc">rtc</option>
+            </select>
+          </label>
+          <label class="cfg-field" for="adv-broadcast-vhost"><span>vhost</span>
+            <input id="adv-broadcast-vhost" name="vhost" value="__defaultVhost__" />
+          </label>
+          <label class="cfg-field" for="adv-broadcast-app"><span>app</span>
+            <input id="adv-broadcast-app" name="app" required />
+          </label>
+          <label class="cfg-field" for="adv-broadcast-stream"><span>stream</span>
+            <input id="adv-broadcast-stream" name="stream" required />
+          </label>
+          <label class="cfg-field" for="adv-broadcast-template"><span>模板 template</span>
+            <select id="adv-broadcast-template" name="template">
+              <option value="maintenance">维护通知</option>
+              <option value="offline">即将下线</option>
+              <option value="notice">自定义纯文本</option>
+            </select>
+          </label>
+          <label class="cfg-field cfg-span-2" for="adv-broadcast-msg"><span>notice 文本</span>
+            <input id="adv-broadcast-msg" name="msg" maxlength="200" placeholder="仅 template=notice 时使用" />
+          </label>
+          <div class="cfg-field cfg-span-2">
+            <button class="ghost" type="submit">发送广播</button>
+          </div>
+        </form>
+      </article>
+    </div>
+  </section>
+  </div>
+</section>
+
+<section class="cfg-zone cfg-zone-zlm">
+  <header class="cfg-zone-head">
+    <div>
+      <h2>ZLM 自身</h2>
+      <p>getServerConfig 全量；保存前校验，通过后 setServerConfig 即时生效</p>
+    </div>
+    <div class="cfg-zone-actions">
+      <a class="ghost" href="/config" hx-get="/config" hx-target="#content" hx-push-url="true">加载</a>
+      <button class="ghost ghost-primary" type="button" id="zlmSaveBtn" data-cfg-save="zlm" disabled
+        hx-post="/ui/config/save" hx-include="[form=cfgForm]" hx-target="#content" hx-swap="innerHTML">保存</button>
+    </div>
+  </header>
+  <div class="cfg-split cfg-split-zlm">
+    {{range .CfgCats}}
+    <article class="cfg-card cfg-cat" data-cat="{{.ID}}">
+      <button type="button" class="cfg-cat-head" onclick="this.parentElement.classList.toggle('collapsed')">
+        <span class="cfg-fold-caret">▾</span>
+        <div>
+          <h3>{{.Title}}</h3>
+          <p>{{.Hint}}{{if .Groups}} · {{len .Groups}} 组{{end}}</p>
+        </div>
+      </button>
+      <div class="cfg-fold-list">
+        {{range .Groups}}
+        <div class="cfg-group {{if not .HasErr}}collapsed{{end}}">
+          <button type="button" class="cfg-fold" onclick="event.preventDefault();event.stopPropagation();this.parentElement.classList.toggle('collapsed')">
+            <span class="cfg-fold-caret">▸</span>
+            <span>{{.Section}}</span>
+            <span class="muted">{{len .Items}}</span>
+            <span class="cfg-src">ZLM</span>
+          </button>
+          <div class="cfg-body {{cfgCols .Items}}">
+            {{range .Items}}
+            <div class="form-row {{cfgSpan .Key .Value}} {{if .Err}}cfg-bad{{end}}">
+              <label title="{{.Key}}{{if .Place}} · {{.Place}}{{end}}">{{.Name}}{{if portKey .Key}} <i>需重启</i>{{end}}{{if .Place}} <i>{{.Place}}</i>{{end}}</label>
+              <input name="{{.Key}}" value="{{.Value}}" form="cfgForm" placeholder="{{.Place}}" title="{{if .Err}}{{.Err}}{{else if .Place}}{{.Place}}{{else}}{{.Value}}{{end}}" />
+              <input type="hidden" name="orig.{{.Key}}" value="{{.Orig}}" form="cfgForm" />
+              {{if .Err}}<span class="cfg-err">{{.Err}}</span>{{end}}
+            </div>
+            {{else}}
+            <div class="muted cfg-empty">该组没有配置项</div>
+            {{end}}
+          </div>
+        </div>
+        {{else}}
+        <div class="muted cfg-empty">暂无 getServerConfig 分组</div>
+        {{end}}
+      </div>
+    </article>
+    {{end}}
+  </div>
+</section>
+</div>
+{{end}}
+
+{{define "cfg-hint"}}
+<span class="muted" id="cfgHint">左右分区各自加载 / 保存；操作结果看弹出提示</span>
+{{end}}

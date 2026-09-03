@@ -1,0 +1,34 @@
+{{define "content-logs"}}
+{{template "content-events" .}}
+{{end}}
+
+{{define "content-logs-inner"}}
+<div class="toolbar">
+  <select id="logFile" name="file">
+    {{$cur := .File}}{{if not $cur}}{{$cur = asStr (index .Logs "file")}}{{end}}
+    {{range index .Logs "files"}}
+    <option value="{{.Name}}" {{if eq $cur .Name}}selected{{end}}>{{.Name}} ({{fmtBytes .Size}})</option>
+    {{else}}
+    <option value="">无日志文件</option>
+    {{end}}
+  </select>
+  <div class="log-lvls">
+    <label><input type="checkbox" class="logLv" name="lv" value="D" {{if contains .Lv "D"}}checked{{end}} />调试</label>
+    <label><input type="checkbox" class="logLv" name="lv" value="I" {{if contains .Lv "I"}}checked{{end}} />信息</label>
+    <label><input type="checkbox" class="logLv" name="lv" value="W" {{if contains .Lv "W"}}checked{{end}} />警告</label>
+    <label><input type="checkbox" class="logLv" name="lv" value="E" {{if contains .Lv "E"}}checked{{end}} />错误</label>
+  </div>
+  <input id="qLog" name="q" type="search" value="{{.Q}}" placeholder="过滤日志关键字" />
+  <button class="ghost" id="logReload" type="button">刷新</button>
+  <button class="ghost" id="logBottom" type="button">滚到最新</button>
+  <span class="log-paused" id="logFollowHint">跟随最新</span>
+</div>
+<div class="muted" id="logMeta" style="margin:0 0 8px"
+  data-offset="{{asStr (index .Logs "offset")}}"
+  data-file="{{asStr (index .Logs "file")}}"
+  data-dir="{{asStr (index .Logs "dir")}}">
+  {{asStr (index .Logs "dir")}} · {{asStr (index .Logs "file")}} · {{if index .Logs "size"}}{{fmtBytes (index .Logs "size")}}{{end}} {{asStr (index .Logs "msg")}}
+</div>
+<pre class="log-console pretty-scroll" id="logText">{{range index .Logs "lines"}}<span class="lv-I">{{.}}</span>
+{{else}}暂无日志内容{{end}}</pre>
+{{end}}
