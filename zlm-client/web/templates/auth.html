@@ -1,0 +1,167 @@
+{{define "content-auth"}}
+<section class="ops-page">
+  <div class="ops-head">
+    <div>
+      <strong>鉴权管理</strong>
+      <span class="muted">先判 IP 限制，通过后再校验 Token。默认全部放行，可叠加推/拉黑名单；也可改成全部禁止，只放行白名单。Token 只约束已填写的 App/Stream；范围为「全部」时所有流都要带 <code>?token=</code>。启用中的 Token 需先停用再删除。</span>
+    </div>
+    <span class="chip">Token {{index .Auth "count"}} · IP {{index .Auth "ip_count"}}</span>
+  </div>
+
+  <article class="rec-bar" title="优先于 Token。关闭=全部放行且不看名单；放行模式看黑名单；禁止模式只放行白名单。">
+    <span class="rec-bar-title">IP 限制</span>
+    <form method="post" action="/auth/ip/mode" hx-post="/auth/ip/mode" hx-target="#content" hx-swap="innerHTML" class="rec-toolbar rec-compact auth-switch-form">
+      <label class="field" for="auth-ip-mode">
+        <select id="auth-ip-mode" name="mode">
+          <option value="off" {{if or (not (index .Auth "ip_mode")) (eq (asStr (index .Auth "ip_mode")) "off")}}selected{{end}}>关闭 · 全部放行</option>
+          <option value="allow" {{if eq (asStr (index .Auth "ip_mode")) "allow"}}selected{{end}}>放行模式 · 默认放行，命中黑名单则拒</option>
+          <option value="deny" {{if eq (asStr (index .Auth "ip_mode")) "deny"}}selected{{end}}>禁止模式 · 默认禁止，命中白名单才放</option>
+        </select>
+      </label>
+      <button class="ghost ghost-primary" type="submit">保存 IP 策略</button>
+      {{if eq (asStr (index .Auth "ip_mode")) "allow"}}<span class="rec-bar-status auth-switch-state status-on">放行 + 黑名单</span>{{else if eq (asStr (index .Auth "ip_mode")) "deny"}}<span class="rec-bar-status auth-switch-state status-on">禁止 + 白名单</span>{{else}}<span class="rec-bar-status auth-switch-state status-off">未限制 IP</span>{{end}}
+    </form>
+  </article>
+
+  <article class="rec-bar" title="黑名单在放行模式下生效；白名单在禁止模式下生效。可同时勾选推流/拉流。">
+    <span class="rec-bar-title">新增 IP</span>
+    <form id="auth-ip-form" method="post" action="/auth/ip/add" hx-post="/auth/ip/add" hx-target="#content" hx-swap="innerHTML" class="rec-toolbar rec-compact"
+      data-listed="{{range $i, $r := index .Auth "listed"}}{{if $i}},{{end}}{{index $r "ip"}}|{{index $r "list"}}{{end}}">
+      <label class="field" for="auth-ip"><span>对端 IP</span><input id="auth-ip" name="ip" placeholder="10.0.0.8 或 CIDR" required></label>
+      <label class="field" for="auth-ip-list"><span>名单</span>
+        <select id="auth-ip-list" name="list">
+          <option value="black">黑名单</option>
+          <option value="white">白名单</option>
+        </select>
+      </label>
+      <label class="field" for="auth-ip-push"><span>推流</span>
+        <select id="auth-ip-push" name="allow_push"><option value="1" selected>是</option><option value="0">否</option></select>
+      </label>
+      <label class="field" for="auth-ip-play"><span>拉流</span>
+        <select id="auth-ip-play" name="allow_play"><option value="1" selected>是</option><option value="0">否</option></select>
+      </label>
+      <label class="field field-grow" for="auth-ip-note"><span>备注</span><input id="auth-ip-note" name="note" placeholder="可选"></label>
+      <button class="ghost ghost-primary" id="auth-ip-submit" type="submit">加入名单</button>
+    </form>
+  </article>
+
+  <div class="table-wrap auth-ip-table">
+    <table class="rec-table js-grid">
+      <thead><tr>
+        <th class="col-idx">序号</th>
+        <th class="col-file">对端 IP</th>
+        <th class="col-type">名单</th>
+        <th class="col-type">推流</th>
+        <th class="col-type">拉流</th>
+        <th>备注</th>
+        <th class="col-type">状态</th>
+        <th class="col-rec-act">操作</th>
+      </tr></thead>
+      <tbody>
+      {{range $i, $r := index .Auth "ips"}}
+        <tr>
+          <td class="col-idx">{{plus $i 1}}</td>
+          <td class="col-file"><code>{{index $r "ip"}}</code></td>
+          <td class="col-type">{{if eq (asStr (index $r "list")) "white"}}白名单{{else}}黑名单{{end}}</td>
+          <td class="col-type"><span class="role-chip{{if index $r "allow_push"}} live{{end}}">{{if index $r "allow_push"}}是{{else}}否{{end}}</span></td>
+          <td class="col-type"><span class="role-chip{{if index $r "allow_play"}} live{{end}}">{{if index $r "allow_play"}}是{{else}}否{{end}}</span></td>
+          <td>{{if index $r "note"}}{{index $r "note"}}{{else}}<span class="muted">-</span>{{end}}</td>
+          <td class="col-type {{if index $r "enabled"}}status-on{{else}}status-off{{end}}">{{if index $r "enabled"}}启用{{else}}停用{{end}}</td>
+          <td class="col-rec-act">
+            <div class="act-row">
+              <form method="post" action="/auth/ip/toggle" hx-post="/auth/ip/toggle" hx-target="#content" hx-swap="innerHTML">
+                <input type="hidden" name="id" value="{{index $r "id"}}">
+                <input type="hidden" name="enabled" value="{{if index $r "enabled"}}0{{else}}1{{end}}">
+                <button class="ghost" type="submit">{{if index $r "enabled"}}停用{{else}}启用{{end}}</button>
+              </form>
+              <form method="post" action="/auth/ip/delete" hx-post="/auth/ip/delete" hx-target="#content" hx-swap="innerHTML" hx-confirm="确认删除该 IP 规则？">
+                <input type="hidden" name="id" value="{{index $r "id"}}">
+                <button class="ghost ghost-danger" type="submit" {{if index $r "enabled"}}disabled title="请先停用再删除"{{end}}>删除</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+      {{else}}
+        <tr><td class="muted" colspan="8">还没有 IP 规则。连接管理里可对推/拉对端一键加入黑白名单。</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+
+  <article class="rec-bar" title="只约束已限制的 App/Stream；范围为全部时所有流都要带 token">
+    <span class="rec-bar-title">鉴权开关</span>
+    <form method="post" action="/auth/enable" hx-post="/auth/enable" hx-target="#content" hx-swap="innerHTML" class="rec-toolbar rec-compact auth-switch-form">
+      <label class="field" for="auth-enabled">
+        <select id="auth-enabled" name="enabled">
+          <option value="0" {{if not (index .Auth "enabled")}}selected{{end}}>关闭 · 不校验 token</option>
+          <option value="1" {{if index .Auth "enabled"}}selected{{end}}>开启 · 推拉必须带 token</option>
+        </select>
+      </label>
+      <button class="ghost ghost-primary" type="submit">保存开关</button>
+      {{if index .Auth "enabled"}}<span class="rec-bar-status auth-switch-state status-on">校验中</span>{{else}}<span class="rec-bar-status auth-switch-state status-off">未校验</span>{{end}}
+    </form>
+  </article>
+
+  <article class="rec-bar" title="新增后自动开启鉴权开关。限制 App/Stream 留空表示全部流可用。">
+    <span class="rec-bar-title">新增 Token</span>
+    <form method="post" action="/auth/add" hx-post="/auth/add" hx-target="#content" hx-swap="innerHTML"
+      hx-confirm="确认新增推拉流 Token？新增后将开启鉴权校验。" class="rec-toolbar rec-compact">
+      <label class="field" for="auth-name"><span>名称</span><input id="auth-name" name="name" placeholder="摄像机 A" required></label>
+      <label class="field field-grow" for="auth-token"><span>Token（可空）</span><input id="auth-token" name="token" placeholder="留空自动生成" autocomplete="off"></label>
+      <label class="field" for="auth-app"><span>限制 App</span><input id="auth-app" name="app" placeholder="全部"></label>
+      <label class="field" for="auth-stream"><span>限制 Stream</span><input id="auth-stream" name="stream" placeholder="全部"></label>
+      <label class="field field-num" for="auth-days"><span>有效天数</span><input id="auth-days" name="expire_days" type="number" min="0" max="3650" value="0" title="0 表示永久"></label>
+      <label class="field" for="auth-push"><span>允许推流</span>
+        <select id="auth-push" name="allow_push"><option value="1" selected>是</option><option value="0">否</option></select>
+      </label>
+      <label class="field" for="auth-play"><span>允许播放</span>
+        <select id="auth-play" name="allow_play"><option value="1" selected>是</option><option value="0">否</option></select>
+      </label>
+      <button class="ghost ghost-primary" type="submit">新增 Token</button>
+    </form>
+  </article>
+
+  <div class="table-wrap">
+    <table class="rec-table js-grid">
+      <thead><tr>
+        <th class="col-idx">序号</th>
+        <th class="col-file">名称</th>
+        <th>Token</th>
+        <th class="col-type">推流</th>
+        <th class="col-type">播放</th>
+        <th class="col-dir">范围</th>
+        <th class="col-type">状态</th>
+        <th class="col-rec-act">操作</th>
+      </tr></thead>
+      <tbody>
+      {{range $i, $t := index .Auth "tokens"}}
+        <tr>
+          <td class="col-idx">{{plus $i 1}}</td>
+          <td class="col-file">{{index $t "name"}}</td>
+          <td><code class="auth-token">{{index $t "token"}}</code></td>
+          <td class="col-type"><span class="role-chip{{if index $t "allow_push"}} live{{end}}">{{if index $t "allow_push"}}是{{else}}否{{end}}</span></td>
+          <td class="col-type"><span class="role-chip{{if index $t "allow_play"}} live{{end}}">{{if index $t "allow_play"}}是{{else}}否{{end}}</span></td>
+          <td class="col-dir">{{if or (index $t "app") (index $t "stream")}}<button class="path-chip" type="button" title="{{index $t "app"}}/{{index $t "stream"}}">{{index $t "app"}}/{{index $t "stream"}}</button>{{else}}<span class="muted">全部</span>{{end}}</td>
+          <td class="col-type {{if index $t "enabled"}}status-on{{else}}status-off{{end}}">{{if index $t "expired"}}已过期{{else if index $t "enabled"}}启用{{else}}停用{{end}}</td>
+          <td class="col-rec-act">
+            <div class="act-row">
+              <form method="post" action="/auth/toggle" hx-post="/auth/toggle" hx-target="#content" hx-swap="innerHTML">
+                <input type="hidden" name="id" value="{{index $t "id"}}">
+                <input type="hidden" name="enabled" value="{{if index $t "enabled"}}0{{else}}1{{end}}">
+                <button class="ghost" type="submit">{{if index $t "enabled"}}停用{{else}}启用{{end}}</button>
+              </form>
+              <form method="post" action="/auth/delete" hx-post="/auth/delete" hx-target="#content" hx-swap="innerHTML" hx-confirm="确认删除 Token {{index $t "name"}}？">
+                <input type="hidden" name="id" value="{{index $t "id"}}">
+                <button class="ghost ghost-danger" type="submit" {{if index $t "enabled"}}disabled title="请先停用再删除"{{end}}>删除</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+      {{else}}
+        <tr><td class="muted" colspan="8">还没有 Token。新增一条，或开启鉴权后会自动生成控制台预览 Token。</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+{{end}}

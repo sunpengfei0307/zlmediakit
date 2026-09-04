@@ -298,7 +298,7 @@ func TestFilesTemplateExposesAccessibleRecordVODControls(t *testing.T) {
 		`hx-post="/files/vod/setRecordSpeed"`, `hx-post="/files/vod/seekRecordStamp"`,
 		`hx-post="/files/vod/deleteRecordFile"`, "删除",
 		"录像播放控制", "仅适用于由录像加载产生的流",
-		"点播中", "复制播放链接", "预览点播", `data-play=`,
+		"点播中", "复制链接", "预览", `data-play=`,
 		`hx-confirm=`, `<label`, `role="status"`,
 		`rec-topbar`, `rec-topbar-main`, `rec-topbar-right`, `rec-topbar-actions`,
 		`hx-vals=`, `vod-badge`,

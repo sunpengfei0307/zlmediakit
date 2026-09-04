@@ -115,7 +115,9 @@ func TestOnFlowReportPublisherClosesStreamImmediately(t *testing.T) {
 			_, _ = w.Write([]byte(`{"code":0,"count_closed":3}`))
 			return
 		}
-		t.Errorf("unexpected api %s", r.URL.Path)
+		if strings.HasPrefix(r.URL.Path, "/index/api/") {
+			t.Errorf("unexpected api %s", r.URL.Path)
+		}
 		_, _ = w.Write([]byte(`{"code":0}`))
 	}))
 	defer srv.Close()

@@ -134,6 +134,7 @@ func Init() {
 		zlm: newZLM(), audit: audit, kv: kv, hooks: make([]model.HookEvent, 0, 256),
 		hist: newHistory(kv), online: map[string]bool{}, versions: map[string]versionCacheEntry{},
 	}
+	H.restoreVODLoads()
 	_ = collectHost("/")
 	time.Sleep(220 * time.Millisecond)
 	_ = collectHost("/")

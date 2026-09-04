@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -559,8 +560,82 @@ type vodLiveStream struct {
 	OriginTypeStr string
 }
 
+func canonVODRel(rel string) string {
+	rel = filepath.ToSlash(strings.TrimSpace(rel))
+	rel = strings.TrimPrefix(rel, "./")
+	rel = strings.TrimPrefix(rel, "/")
+	if rel == "" {
+		return ""
+	}
+	if strings.HasPrefix(rel, "mp4/") {
+		return rel
+	}
+	return "mp4/" + rel
+}
+
 func vodFileKey(nodeID, rel string) string {
-	return nodeID + "\n" + filepath.ToSlash(strings.TrimSpace(rel))
+	return nodeID + "\n" + canonVODRel(rel)
+}
+
+type vodLoadRec struct {
+	NodeID string `json:"node_id"`
+	Rel    string `json:"rel"`
+	Vhost  string `json:"vhost"`
+	App    string `json:"app"`
+	Stream string `json:"stream"`
+}
+
+func (h *Hub) persistVODLoad(nodeID, rel string, load vodLoad, drop bool) {
+	if h == nil || h.kv == nil {
+		return
+	}
+	key := []byte(vodFileKey(nodeID, rel))
+	if drop {
+		_ = h.kv.DeleteKeys(kvBucketVOD, [][]byte{key})
+		return
+	}
+	raw, err := json.Marshal(vodLoadRec{
+		NodeID: nodeID, Rel: canonVODRel(rel), Vhost: load.Vhost, App: load.App, Stream: load.Stream,
+	})
+	if err != nil {
+		return
+	}
+	_ = h.kv.Put(kvBucketVOD, key, raw)
+}
+
+func (h *Hub) restoreVODLoads() {
+	if h == nil || h.kv == nil {
+		return
+	}
+	h.vodMu.Lock()
+	if h.vodLoads == nil {
+		h.vodLoads = map[string]vodLoad{}
+	}
+	_ = h.kv.ForEach(kvBucketVOD, func(k, v []byte) error {
+		var rec vodLoadRec
+		if json.Unmarshal(v, &rec) != nil {
+			return nil
+		}
+		rel := rec.Rel
+		if rel == "" && strings.Contains(string(k), "\n") {
+			rel = strings.SplitN(string(k), "\n", 2)[1]
+		}
+		if rec.App == "" || rec.Stream == "" || rel == "" {
+			return nil
+		}
+		if rec.Vhost == "" {
+			rec.Vhost = "__defaultVhost__"
+		}
+		nodeID := rec.NodeID
+		if nodeID == "" {
+			if i := strings.IndexByte(string(k), '\n'); i > 0 {
+				nodeID = string(k[:i])
+			}
+		}
+		h.vodLoads[vodFileKey(nodeID, rel)] = vodLoad{Vhost: rec.Vhost, App: rec.App, Stream: rec.Stream, File: canonVODRel(rel)}
+		return nil
+	})
+	h.vodMu.Unlock()
 }
 
 func (h *Hub) rememberVODLoad(nodeID, rel, vhost, app, stream string) {
@@ -570,12 +645,14 @@ func (h *Hub) rememberVODLoad(nodeID, rel, vhost, app, stream string) {
 	if vhost == "" {
 		vhost = "__defaultVhost__"
 	}
+	load := vodLoad{Vhost: vhost, App: app, Stream: stream, File: canonVODRel(rel)}
 	h.vodMu.Lock()
 	if h.vodLoads == nil {
 		h.vodLoads = map[string]vodLoad{}
 	}
-	h.vodLoads[vodFileKey(nodeID, rel)] = vodLoad{Vhost: vhost, App: app, Stream: stream, File: filepath.ToSlash(rel)}
+	h.vodLoads[vodFileKey(nodeID, rel)] = load
 	h.vodMu.Unlock()
+	h.persistVODLoad(nodeID, rel, load, false)
 }
 
 func (h *Hub) forgetVODLoad(nodeID, rel string) {
@@ -585,6 +662,7 @@ func (h *Hub) forgetVODLoad(nodeID, rel string) {
 	h.vodMu.Lock()
 	delete(h.vodLoads, vodFileKey(nodeID, rel))
 	h.vodMu.Unlock()
+	h.persistVODLoad(nodeID, rel, vodLoad{}, true)
 }
 
 func (h *Hub) lookupVODLoad(nodeID, rel string) (vodLoad, bool) {
@@ -595,6 +673,55 @@ func (h *Hub) lookupVODLoad(nodeID, rel string) (vodLoad, bool) {
 	defer h.vodMu.Unlock()
 	load, ok := h.vodLoads[vodFileKey(nodeID, rel)]
 	return load, ok
+}
+
+func vodDiskPath(n config.Node, rel string) string {
+	rel = filepath.ToSlash(strings.TrimSpace(rel))
+	if rel == "" {
+		return ""
+	}
+	stripped := strings.TrimPrefix(rel, "mp4/")
+	cands := []string{
+		filepath.Join(n.MP4Save, rel),
+		filepath.Join(n.Root, rel),
+		filepath.Join(n.MP4Save, stripped),
+		filepath.Join(n.Root, stripped),
+	}
+	for _, p := range cands {
+		if p == "" || p == stripped || p == rel {
+			continue
+		}
+		st, err := os.Stat(p)
+		if err == nil && !st.IsDir() {
+			return p
+		}
+	}
+	return ""
+}
+
+func (h *Hub) reloadMissingVOD(n config.Node, file MediaFile, load vodLoad) bool {
+	if h == nil || h.zlm == nil {
+		return false
+	}
+	abs := vodDiskPath(n, file.Path)
+	if abs == "" {
+		abs = vodDiskPath(n, load.File)
+	}
+	if abs == "" {
+		return false
+	}
+	vhost := load.Vhost
+	if vhost == "" {
+		vhost = "__defaultVhost__"
+	}
+	result, err := h.zlm.callPOST(n, "loadMP4File", url.Values{
+		"vhost": {vhost}, "app": {load.App}, "stream": {load.Stream}, "file_path": {abs},
+	})
+	if err != nil || asFloat(result["code"]) != 0 {
+		return false
+	}
+	h.rememberVODLoad(n.ID, file.Path, vhost, load.App, load.Stream)
+	return true
 }
 
 func isMP4VODOrigin(originType float64, originTypeStr string) bool {
@@ -652,8 +779,10 @@ func attachVODMarks(h *Hub, n config.Node, host string, files []MediaFile, lives
 	for i, file := range files {
 		load, ok := h.lookupVODLoad(n.ID, file.Path)
 		if ok && len(lives) > 0 && !vodStreamAlive(lives, load.Vhost, load.App, load.Stream) {
-			h.forgetVODLoad(n.ID, file.Path)
-			ok = false
+			if !h.reloadMissingVOD(n, file, load) {
+				h.forgetVODLoad(n.ID, file.Path)
+				ok = false
+			}
 		}
 		if !ok {
 			load, ok = matchVODOrigin(file, lives)

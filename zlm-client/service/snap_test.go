@@ -332,7 +332,20 @@ func TestScheduledSnapUsesAuthenticatedZLMClient(t *testing.T) {
 }
 
 func TestStartScriptStopsRelativeLegacySnapd(t *testing.T) {
-	body, err := os.ReadFile(filepath.Join("..", "control.sh"))
+	wd, _ := os.Getwd()
+	var body []byte
+	var err error
+	for _, rel := range []string{
+		filepath.Join("..", "control.sh"),
+		filepath.Join("..", "..", "control.sh"),
+		filepath.Join(wd, "..", "control.sh"),
+		filepath.Join(wd, "..", "..", "control.sh"),
+	} {
+		body, err = os.ReadFile(rel)
+		if err == nil {
+			break
+		}
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

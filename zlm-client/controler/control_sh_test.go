@@ -2,16 +2,27 @@ package controler
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestControlScriptCoversTargetsAndSystemd(t *testing.T) {
-	raw, err := os.ReadFile("../control.sh")
-	if err != nil {
-		t.Fatal(err)
+func readRepoFile(t *testing.T, rel string) []byte {
+	t.Helper()
+	wd, _ := os.Getwd()
+	for _, dir := range []string{wd, filepath.Join(wd, ".."), filepath.Join(wd, "..", "..")} {
+		p := filepath.Join(dir, rel)
+		raw, err := os.ReadFile(p)
+		if err == nil {
+			return raw
+		}
 	}
-	out := string(raw)
+	t.Fatalf("open %s: no such file or directory (cwd=%s)", rel, wd)
+	return nil
+}
+
+func TestControlScriptCoversTargetsAndSystemd(t *testing.T) {
+	out := string(readRepoFile(t, "control.sh"))
 	for _, want := range []string{
 		"zlm-server", "zlm-client", "zlm",
 		"start", "stop", "restart", "reload",
@@ -36,14 +47,8 @@ func TestControlScriptCoversTargetsAndSystemd(t *testing.T) {
 }
 
 func TestControlSystemdUnitsRestartAlways(t *testing.T) {
-	server, err := os.ReadFile("../deploy/systemd/zlm-server.service.in")
-	if err != nil {
-		t.Fatal(err)
-	}
-	client, err := os.ReadFile("../deploy/systemd/zlm-client.service.in")
-	if err != nil {
-		t.Fatal(err)
-	}
+	server := readRepoFile(t, "thr3parts/systemd/zlm-server.service.in")
+	client := readRepoFile(t, "thr3parts/systemd/zlm-client.service.in")
 	ss, cs := string(server), string(client)
 	for _, want := range []string{"Restart=always", "TimeoutStartSec=", "@BIN@", "@CFG@", "@DATA@"} {
 		if !strings.Contains(ss, want) {
@@ -71,11 +76,7 @@ func TestControlSystemdUnitsRestartAlways(t *testing.T) {
 }
 
 func TestStartScriptDelegatesToControl(t *testing.T) {
-	raw, err := os.ReadFile("../start.sh")
-	if err != nil {
-		t.Fatal(err)
-	}
-	out := string(raw)
+	out := string(readRepoFile(t, "start.sh"))
 	if !strings.Contains(out, "control.sh") || !strings.Contains(out, "zlm") {
 		t.Fatal("start.sh must delegate to control.sh")
 	}
