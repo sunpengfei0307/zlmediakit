@@ -17,6 +17,7 @@ type dashJob struct {
 	cmd    *exec.Cmd
 	cancel context.CancelFunc
 	out    string
+	src    string
 }
 
 var (
@@ -29,6 +30,13 @@ const defaultDashRoot = "/data/zlm"
 
 func dashJobKey(nodeID, app, stream string) string {
 	return nodeID + "|" + app + "|" + stream
+}
+
+func dashJobStale(job *dashJob, out, src string) bool {
+	if job == nil {
+		return false
+	}
+	return job.out != out || job.src != src
 }
 
 func ffmpegCandidates() []string {
@@ -149,13 +157,13 @@ func (h *Hub) EnsureDASH(nodeID, vhost, app, stream string) map[string]any {
 		return map[string]any{"code": -1, "msg": "missing app/stream"}
 	}
 	out := dashOutputFile(n, vhost, app, stream)
-	rtmpIn := fmt.Sprintf("rtmp://127.0.0.1:%d/%s/%s", nz(n.RTMPPort, 1935), app, stream)
+	rtmpIn := localRTMPPlayURL(n, app, stream)
 	enabled := DashEnabled()
 	key := dashJobKey(nodeID, app, stream)
 	dashMu.Lock()
 	defer dashMu.Unlock()
 	if job := dashJobs[key]; job != nil && job.cmd != nil && job.cmd.Process != nil {
-		if job.out == out {
+		if !dashJobStale(job, out, rtmpIn) {
 			return map[string]any{"code": 0, "enabled": enabled, "running": true, "mpd": out, "ffmpeg": lookFFmpeg(), "msg": "DASH 转封装已在运行"}
 		}
 		if job.cancel != nil {
@@ -180,7 +188,7 @@ func (h *Hub) EnsureDASH(nodeID, vhost, app, stream string) map[string]any {
 		cancel()
 		return map[string]any{"code": -1, "enabled": true, "running": false, "mpd": out, "cmd": dashFFmpegCmd(rtmpIn, out), "ffmpeg": bin, "msg": "启动 ffmpeg 失败: " + err.Error()}
 	}
-	job := &dashJob{cmd: cmd, cancel: cancel, out: out}
+	job := &dashJob{cmd: cmd, cancel: cancel, out: out, src: rtmpIn}
 	dashJobs[key] = job
 	logger.Infor("dash ffmpeg start %s pid=%d bin=%s out=%s", key, cmd.Process.Pid, bin, out)
 	go func() {
@@ -198,7 +206,7 @@ func (h *Hub) EnsureDASH(nodeID, vhost, app, stream string) map[string]any {
 }
 
 func (h *Hub) EnsureDASHAll() {
-	if h == nil || !DashEnabled() {
+	if h == nil || h.zlm == nil || !DashEnabled() {
 		return
 	}
 	var nodes []config.Node

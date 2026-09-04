@@ -33,6 +33,7 @@ type Hub struct {
 	clock         sessClock
 	online        map[string]bool
 	versions      map[string]versionCacheEntry
+	kv            *LocalKV
 	vodMu         sync.Mutex
 	vodLoads      map[string]vodLoad
 }
@@ -130,7 +131,7 @@ func Init() {
 		}
 	}
 	H = &Hub{
-		zlm: newZLM(), audit: audit, hooks: make([]model.HookEvent, 0, 256),
+		zlm: newZLM(), audit: audit, kv: kv, hooks: make([]model.HookEvent, 0, 256),
 		hist: newHistory(kv), online: map[string]bool{}, versions: map[string]versionCacheEntry{},
 	}
 	_ = collectHost("/")
@@ -286,6 +287,7 @@ func (h *Hub) Overview() map[string]any {
 			h.rememberNode(n)
 			h.noteReachable(n.ID, n.API, snap.Online, snap.Error)
 			h.clock.observe(n.ID, snap.Sessions, true)
+			overlayPublisherStats(grouped, snap.Sessions)
 			out := nodeOut{
 				Node:      publicNode(n),
 				Online:    snap.Online,
@@ -361,6 +363,7 @@ func (h *Hub) NodeAction(id, action, host string, q url.Values, body []byte) (an
 			sessions = append(sessions, row)
 		}
 		h.clock.observe(n.ID, sessions, true)
+		overlayPublisherStats(grouped, sessions)
 		var hostm *model.HostMetrics
 		if n.LocalMetrics {
 			hm := collectHost("/")
@@ -397,7 +400,11 @@ func (h *Hub) NodeAction(id, action, host string, q url.Values, body []byte) (an
 		if typ == "" {
 			typ = "play"
 		}
-		data, status, err := h.zlm.webrtcPlay(n, q.Get("app"), q.Get("stream"), typ, string(body), publicIP)
+		tok := q.Get("token")
+		if tok == "" {
+			tok = h.mediaTokenFor(q.Get("app"), q.Get("stream"), typ != "push")
+		}
+		data, status, err := h.zlm.webrtcPlay(n, q.Get("app"), q.Get("stream"), typ, string(body), publicIP, tok)
 		if err != nil {
 			return map[string]any{"code": -1, "msg": err.Error()}, 200, nil
 		}
@@ -911,7 +918,7 @@ func configNeedsRestart(k string) bool {
 	lk := strings.ToLower(k)
 	return strings.Contains(lk, ".port") || strings.HasSuffix(lk, "sslport") ||
 		strings.Contains(lk, "listen_ip") || strings.HasSuffix(lk, ".sockport") ||
-		strings.HasSuffix(lk, ".tcpport")
+		strings.HasSuffix(lk, ".tcpport") || lk == "log.dir"
 }
 
 func (h *Hub) refreshNodeIni(id string) {
@@ -1305,6 +1312,7 @@ func (h *Hub) streamConns(n config.Node, vhost, app, stream string) map[string]a
 	all = append(all, players...)
 	all = append(all, related...)
 	h.clock.observe(n.ID, all, true)
+	overlayPublisherStats(grouped, pubs)
 	out := map[string]any{
 		"code": 0, "media": media, "publishers": pubs, "players": players, "sessions": related,
 		"online": snap.Online, "error": snap.Error, "media_online": mediaOnline,
@@ -1337,7 +1345,7 @@ func (h *Hub) Events() map[string]any {
 	return map[string]any{"code": 0, "events": evs, "names": names}
 }
 
-func (h *Hub) Logs(nodeID, file, lv string, maxLines int) map[string]any {
+func (h *Hub) Logs(nodeID, file, source, lv string, maxLines int) map[string]any {
 	if nodeID == "" {
 		nodeID = "zlm-1"
 	}
@@ -1345,29 +1353,39 @@ func (h *Hub) Logs(nodeID, file, lv string, maxLines int) map[string]any {
 	if !ok {
 		return map[string]any{"code": -1, "msg": "unknown node"}
 	}
-	dir := n.LogDir
-	if dir == "" {
-		return map[string]any{"code": -1, "msg": "未配置 log_dir"}
+	clientDir, serverDir := logRoots(n)
+	clientFiles := tagLogFiles(logSrcClient, clientDir)
+	serverFiles := tagLogFiles(logSrcServer, serverDir)
+	files := append(append([]model.LogFileInfo{}, clientFiles...), serverFiles...)
+	sources := []map[string]string{
+		{"id": logSrcClient, "name": "zlm-client", "dir": clientDir},
+		{"id": logSrcServer, "name": "zlm-server", "dir": serverDir},
 	}
-	files, err := listLogFiles(dir)
+	p, src, name, dir, err := resolveLogFile(clientDir, serverDir, file, source)
 	if err != nil {
-		return map[string]any{"code": -1, "msg": err.Error(), "dir": dir}
-	}
-	p, err := safeLogPath(dir, file)
-	if err != nil {
-		return map[string]any{"code": 0, "files": files, "lines": []string{}, "offset": int64(0), "msg": err.Error()}
+		if src == "" {
+			src = logSrcClient
+			dir = clientDir
+		}
+		return map[string]any{
+			"code": 0, "files": files, "sources": sources, "source": src, "dir": dir,
+			"file": name, "lines": []string{}, "offset": int64(0), "msg": err.Error(),
+		}
 	}
 	lines, size, err := readTailLines(p, logSnapMaxBytes, maxLines, lv)
 	if err != nil {
-		return map[string]any{"code": -1, "files": files, "msg": err.Error(), "dir": dir}
+		return map[string]any{
+			"code": -1, "files": files, "sources": sources, "source": src,
+			"dir": dir, "file": name, "msg": err.Error(),
+		}
 	}
 	return map[string]any{
-		"code": 0, "dir": dir, "file": filepath.Base(p), "files": files,
-		"lines": lines, "offset": size, "size": size,
+		"code": 0, "dir": dir, "file": src + "/" + name, "name": name, "source": src,
+		"files": files, "sources": sources, "lines": lines, "offset": size, "size": size,
 	}
 }
 
-func (h *Hub) LogStream(ctx context.Context, w http.ResponseWriter, nodeID, file, lv string, offset int64) error {
+func (h *Hub) LogStream(ctx context.Context, w http.ResponseWriter, nodeID, file, source, lv string, offset int64) error {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		return fmt.Errorf("stream unsupported")
@@ -1376,14 +1394,15 @@ func (h *Hub) LogStream(ctx context.Context, w http.ResponseWriter, nodeID, file
 		nodeID = "zlm-1"
 	}
 	n, found := h.nodeByID(nodeID)
-	if !found || n.LogDir == "" {
+	if !found {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		_ = writeSSE(w, "logerr", map[string]any{"msg": "unknown node or empty log_dir"})
+		_ = writeSSE(w, "logerr", map[string]any{"msg": "unknown node"})
 		flusher.Flush()
 		return nil
 	}
-	p, err := safeLogPath(n.LogDir, file)
+	clientDir, serverDir := logRoots(n)
+	p, _, _, _, err := resolveLogFile(clientDir, serverDir, file, source)
 	if err != nil {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
@@ -1449,6 +1468,25 @@ func (h *Hub) Hook(event string, raw []byte) map[string]any {
 	}
 	server := asString(body["mediaServerId"])
 	logHook(event, body)
+	if deny, msg := h.denyStreamHook(event, body); deny {
+		if hookShouldStore(event) || event == "on_http_access" {
+			body["auth"] = "deny"
+			body["auth_msg"] = msg
+			h.mu.Lock()
+			h.hooks = append([]model.HookEvent{{Time: time.Now().Format("15:04:05"), Event: event, Server: server, Body: body}}, h.hooks...)
+			if len(h.hooks) > 400 {
+				h.hooks = h.hooks[:400]
+			}
+			h.mu.Unlock()
+		}
+		resp := hookReply(event)
+		resp["code"] = -1
+		resp["msg"] = msg
+		if event == "on_http_access" {
+			resp["err"] = msg
+		}
+		return resp
+	}
 	if hookShouldStore(event) {
 		h.mu.Lock()
 		h.hooks = append([]model.HookEvent{{Time: time.Now().Format("15:04:05"), Event: event, Server: server, Body: body}}, h.hooks...)
@@ -1467,6 +1505,12 @@ func (h *Hub) Hook(event string, raw []byte) map[string]any {
 		}
 	case "on_flow_report":
 		h.clock.forget(nodeID, sid)
+		if publisherFlowEnded(body) {
+			go func() {
+				time.Sleep(50 * time.Millisecond)
+				h.closeDisconnectedPublisher(nodeID, body)
+			}()
+		}
 	case "on_stream_changed":
 		if asTruthy(body["regist"]) {
 			go h.EnsureHLSInit(nodeID, asString(body["vhost"]), asString(body["app"]), asString(body["stream"]))

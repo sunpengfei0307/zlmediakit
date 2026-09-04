@@ -1,5 +1,6 @@
 const $ = (id) => document.getElementById(id);
 const THEME_KEY = 'zlm-theme';
+const NAV_KEY = 'zlm-nav';
 
 function cssVar(name, fallback) {
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -32,6 +33,135 @@ function initThemeToggle() {
         applyTheme(btn.getAttribute('data-theme-set'), true);
     });
 }
+
+function currentNav() {
+    try {
+        if (localStorage.getItem(NAV_KEY) === 'sidebar') return 'sidebar';
+        if (localStorage.getItem(NAV_KEY) === 'header') return 'header';
+    } catch (e) { }
+    return document.documentElement.getAttribute('data-nav') === 'sidebar' ? 'sidebar' : 'header';
+}
+
+function applyNavLayout(mode) {
+    const n = mode === 'sidebar' ? 'sidebar' : 'header';
+    document.documentElement.setAttribute('data-nav', n);
+    try { localStorage.setItem(NAV_KEY, n); } catch (e) { }
+    document.querySelectorAll('[data-nav-set]').forEach((b) => {
+        b.classList.toggle('is-on', b.getAttribute('data-nav-set') === n);
+    });
+}
+
+function initNavLayout() {
+    applyNavLayout(currentNav());
+    if (document.body.dataset.navBound) return;
+    document.body.dataset.navBound = '1';
+    document.body.addEventListener('click', (e) => {
+        const btn = e.target.closest && e.target.closest('[data-nav-set]');
+        if (!btn) return;
+        applyNavLayout(btn.getAttribute('data-nav-set'));
+        renderPageTabs();
+    });
+}
+
+const OPEN_TABS_KEY = 'zlm-open-tabs';
+const PAGE_TABS = [
+    { id: 'overview', href: '/', label: '系统概览' },
+    { id: 'streams', href: '/streams', label: '直播管理' },
+    { id: 'sessions', href: '/sessions', label: '连接管理' },
+    { id: 'sources', href: '/sources', label: '信号转发' },
+    { id: 'protocols', href: '/protocols', label: '协议管理' },
+    { id: 'files', href: '/files', label: '录制管理' },
+    { id: 'push', href: '/push', label: '推流管理' },
+    { id: 'auth', href: '/auth', label: '鉴权管理' },
+    { id: 'config', href: '/config', label: '配置管理' },
+    { id: 'events', href: '/events', label: '事件日志' }
+];
+
+function tabIdForPage(page) {
+    if (page === 'logs') return 'events';
+    if (page === 'rtp' || page === 'onvif-webrtc') return 'protocols';
+    return page;
+}
+
+function pageTabSpec(id) {
+    return PAGE_TABS.find((t) => t.id === id) || null;
+}
+
+function loadOpenTabs() {
+    let ids = [];
+    try {
+        ids = JSON.parse(localStorage.getItem(OPEN_TABS_KEY) || '[]');
+    } catch (e) { ids = []; }
+    if (!Array.isArray(ids)) ids = [];
+    return ids.filter((id) => !!pageTabSpec(id));
+}
+
+function saveOpenTabs(ids) {
+    try { localStorage.setItem(OPEN_TABS_KEY, JSON.stringify(ids)); } catch (e) { }
+}
+
+function ensureOpenTab(page) {
+    const id = tabIdForPage(page);
+    if (!pageTabSpec(id)) return loadOpenTabs();
+    const tabs = loadOpenTabs();
+    if (!tabs.includes(id)) {
+        tabs.push(id);
+        saveOpenTabs(tabs);
+    }
+    return tabs;
+}
+
+function navigatePageTab(href) {
+    if (window.htmx) {
+        try { history.pushState({}, '', href); } catch (e) { }
+        renderPageTabs();
+        htmx.ajax('GET', href, { target: '#content', swap: 'innerHTML' });
+        return;
+    }
+    location.href = href;
+}
+
+function closeOpenTab(page) {
+    const id = tabIdForPage(page);
+    const tabs = loadOpenTabs();
+    const idx = tabs.indexOf(id);
+    if (idx < 0) return;
+    tabs.splice(idx, 1);
+    saveOpenTabs(tabs);
+    const current = tabIdForPage(pageFromPath());
+    if (current !== id) {
+        renderPageTabs();
+        return;
+    }
+    const next = tabs[idx - 1] || tabs[idx] || 'overview';
+    const spec = pageTabSpec(next) || pageTabSpec('overview');
+    navigatePageTab(spec.href);
+}
+
+function renderPageTabs() {
+    const bar = document.getElementById('pageTabs') || document.querySelector('.tagsbar');
+    if (!bar) return;
+    const page = tabIdForPage(pageFromPath());
+    const tabs = ensureOpenTab(page);
+    bar.innerHTML = tabs.map((id) => {
+        const spec = pageTabSpec(id);
+        if (!spec) return '';
+        const active = id === page ? ' active' : '';
+        const close = tabs.length > 1
+            ? `<button type="button" class="tab-close" data-close-tab="${spec.id}" aria-label="关闭 ${spec.label}" title="关闭">×</button>`
+            : '';
+        return `<a class="page-tab${active}" href="${spec.href}" hx-get="${spec.href}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" data-tab="${spec.id}">${spec.label}${close}</a>`;
+    }).join('');
+    if (window.htmx) htmx.process(bar);
+    bar.querySelectorAll('[data-close-tab]').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeOpenTab(btn.getAttribute('data-close-tab'));
+        });
+    });
+}
+
 let current = null;
 let mpegtsPlayer = null;
 let hlsPlayer = null;
@@ -145,14 +275,40 @@ function assertPublicPlayUrl(url) {
     return true;
 }
 
+function playUrlToken(u) {
+    try {
+        const s = String(u || '');
+        const q = s.indexOf('?') >= 0 ? s.slice(s.indexOf('?') + 1) : '';
+        return new URLSearchParams(q).get('token') || '';
+    } catch (e) {
+        return '';
+    }
+}
+
+function withPlayToken(u, tok) {
+    if (!tok || !u || /(?:\?|&)token=/.test(String(u))) return u;
+    return u + (String(u).indexOf('?') >= 0 ? '&' : '?') + 'token=' + encodeURIComponent(tok);
+}
+
+function hlsXhrSetup(srcUrl, withCreds) {
+    const tok = playUrlToken(srcUrl);
+    return (xhr, reqUrl) => {
+        const next = withPlayToken(reqUrl, tok);
+        if (next !== reqUrl) xhr.open('GET', next, true);
+        xhr.withCredentials = !!withCreds;
+    };
+}
+
 function webrtcSignalUrl(playUrl, link) {
+    const tok = playUrlToken(playUrl) || playUrlToken(link && (link.url || link.URL));
     const extras = (link && (link.extra || link.Extra)) || [];
     for (let i = 0; i < extras.length; i++) {
         const lab = extras[i].label || extras[i].Label || '';
         const u = extras[i].url || extras[i].URL || '';
-        if (u && /HTTP\s*信令/i.test(lab)) return u;
+        if (u && /HTTP\s*信令/i.test(lab)) return withPlayToken(u, tok);
     }
-    const m = String(playUrl || '').match(/^webrtc:\/\/([^/:]+)(?::(\d+))?\/(.+)$/i);
+    const raw = String(playUrl || '').trim().split('?')[0];
+    const m = raw.match(/^webrtc:\/\/([^/:]+)(?::(\d+))?\/(.+)$/i);
     if (!m) return '';
     const host = m[1];
     const port = m[2] || '';
@@ -161,7 +317,7 @@ function webrtcSignalUrl(playUrl, link) {
     const app = parts[parts.length - 2];
     const stream = parts[parts.length - 1];
     const origin = port ? ('http://' + host + ':' + port) : ('http://' + host);
-    return origin + '/index/api/webrtc?app=' + encodeURIComponent(app) + '&stream=' + encodeURIComponent(stream) + '&type=play';
+    return withPlayToken(origin + '/index/api/webrtc?app=' + encodeURIComponent(app) + '&stream=' + encodeURIComponent(stream) + '&type=play', tok);
 }
 
 function zlmHttpPort() {
@@ -234,6 +390,7 @@ function syncNav() {
             || (href === '/events' && (page === 'events' || page === 'logs'));
         a.classList.toggle('active', active);
     });
+    renderPageTabs();
 }
 
 function showToast(msg) {
@@ -834,17 +991,27 @@ bindBatchSelectOnce();
 
 function recColSpec(th, title, isCheck, isAct) {
     const cls = th.className || '';
+    const page = document.body.getAttribute('data-page') || '';
     if (cls.indexOf('col-idx') >= 0 || title === '序号') {
         return { width: 56, minWidth: 48, hozAlign: 'center', headerSort: false, frozen: true };
     }
     if (isCheck) return { width: 44, minWidth: 44, hozAlign: 'center', headerSort: false, frozen: true };
+    if (page === 'auth') {
+        if (title === 'Token') return { minWidth: 200, widthGrow: 2 };
+        if (cls.indexOf('col-file') >= 0 || title === '名称') return { minWidth: 96, widthGrow: 1 };
+        if (title === '推流' || title === '播放' || title === '状态') {
+            return { width: 72, minWidth: 64, hozAlign: 'center', headerSort: false };
+        }
+        if (title === '范围') return { width: 110, minWidth: 88, widthGrow: 0, hozAlign: 'center' };
+        if (isAct) return { width: 148, minWidth: 140, maxWidth: 180, widthGrow: 0, hozAlign: 'center', headerSort: false, frozen: true };
+    }
     if (cls.indexOf('col-file') >= 0 || title === '文件') return { minWidth: 160, widthGrow: 1.4 };
     if (cls.indexOf('col-dir') >= 0 || title === '目录') return { minWidth: 140, widthGrow: 2 };
-    if (cls.indexOf('col-type') >= 0 || title === '类型') return { width: 110, minWidth: 90 };
+    if (cls.indexOf('col-type') >= 0 || title === '类型') return { width: 110, minWidth: 90, hozAlign: 'center' };
     if (cls.indexOf('col-size') >= 0 || title === '大小') return { width: 88, minWidth: 72 };
     if (cls.indexOf('col-dur') >= 0 || title === '时长') return { width: 80, minWidth: 64 };
     if (cls.indexOf('col-mtime') >= 0 || title === '修改时间') return { width: 158, minWidth: 140 };
-    if (isAct) return { minWidth: 300, widthGrow: 0, frozen: true };
+    if (isAct) return { minWidth: 300, widthGrow: 0, frozen: true, hozAlign: 'center' };
     return {};
 }
 
@@ -919,6 +1086,7 @@ function onPageEnter() {
     const page = pageFromPath();
     syncNav();
     initThemeToggle();
+    initNavLayout();
     if (page !== 'logs' && !(page === 'events' && $('logText'))) stopLogViewer();
     if (page === 'overview') loadCharts();
     if (page === 'logs' || (page === 'events' && $('logText'))) startLogViewer();
@@ -927,8 +1095,35 @@ function onPageEnter() {
     if (page === 'files') { loadRecFiles(); syncRecModeUI(); fillVodCtrlFromMemory(); }
     if (page === 'config') { fillCfgPaths(); initCfgSearch(); initCfgValueGuards(); }
     if (page === 'streams') { initStreamTableScroll(); initStreamSplit(); }
+    if (page === 'auth') { syncAuthIPDirDefaults(); syncAuthIPAddBtn(); }
     initOpsTables();
     initBatchSelect();
+}
+
+function syncAuthIPDirDefaults() {
+    const listEl = $('auth-ip-list');
+    const pushEl = $('auth-ip-push');
+    const playEl = $('auth-ip-play');
+    if (!listEl || !pushEl || !playEl) return;
+    pushEl.value = '1';
+    playEl.value = '1';
+}
+
+function syncAuthIPAddBtn() {
+    const form = $('auth-ip-form');
+    const btn = $('auth-ip-submit');
+    const ipEl = $('auth-ip');
+    const listEl = $('auth-ip-list');
+    if (!form || !btn || !ipEl || !listEl) return;
+    const listed = String(form.getAttribute('data-listed') || '').split(',').map((x) => x.trim()).filter(Boolean);
+    const ip = String(ipEl.value || '').trim();
+    const list = String(listEl.value || '').trim();
+    const hit = ip !== '' && listed.some((row) => {
+        const parts = row.split('|');
+        return parts[0] === ip && parts[1] === list;
+    });
+    btn.disabled = hit;
+    btn.title = hit ? '该 IP 已在名单中' : '';
 }
 
 document.body.addEventListener('toast', toastFromEvent);
@@ -1130,12 +1325,20 @@ document.body.addEventListener('htmx:configRequest', (e) => {
 document.addEventListener('change', (e) => {
     if (e.target && (e.target.id === 'recMode' || e.target.id === 'recType')) syncRecModeUI();
     if (e.target && e.target.id === 'mediaPathBase') e.target.dataset.touched = '1';
+    if (e.target && e.target.id === 'logSource') {
+        logFollow = true;
+        const sel = $('logFile');
+        if (sel) sel.value = '';
+        startLogViewer(true);
+    }
     if (e.target && e.target.id === 'logFile') { logFollow = true; startLogViewer(true); }
     if (e.target && e.target.classList.contains('logLv')) { logFollow = true; startLogViewer(true); }
     if (e.target && e.target.id === 'eventKind') filterHookEvents();
     if (e.target && e.target.id === 'pushScreen' && e.target.checked && $('pushCam')) $('pushCam').checked = false;
     if (e.target && e.target.id === 'pushCam' && e.target.checked && $('pushScreen')) $('pushScreen').checked = false;
     if (e.target && (e.target.id === 'pushPlayUrl' || e.target.id === 'pushType')) applyPlayUrl(false);
+    if (e.target && e.target.id === 'auth-ip-list') { syncAuthIPDirDefaults(); syncAuthIPAddBtn(); }
+    if (e.target && e.target.id === 'auth-ip') syncAuthIPAddBtn();
     if (e.target && e.target.id === 'monRoot') {
         const root = e.target.value.trim().replace(/[\\/]+$/, '');
         if (!root) return;
@@ -1147,6 +1350,7 @@ document.addEventListener('change', (e) => {
 
 document.addEventListener('input', (e) => {
     if (e.target && (e.target.id === 'vodCtrlApp' || e.target.id === 'vodCtrlStream')) e.target.dataset.touched = '1';
+    if (e.target && (e.target.id === 'auth-ip' || e.target.id === 'auth-ip-list')) syncAuthIPAddBtn();
     if (e.target && e.target.id === 'qLog') scheduleFilterLog();
     if (e.target && e.target.id === 'qEvent') filterHookEvents();
     if (e.target && e.target.id === 'pushPlayUrl') applyPlayUrl(true);
@@ -1220,9 +1424,32 @@ async function startLogViewer() {
     await loadLogSnapshot();
     if (logFollow) startLogStream();
 }
+function logFileID(f) {
+    if (!f) return '';
+    if (f.id) return f.id;
+    return (f.source || 'client') + '/' + (f.name || '');
+}
+function currentLogSource() {
+    const el = $('logSource');
+    return (el && el.value) || 'client';
+}
+function fillLogFileSelect(files, source, selected) {
+    const sel = $('logFile');
+    if (!sel) return;
+    const ofSrc = (files || []).filter((f) => (f.source || 'client') === source);
+    const sig = source + '|' + ofSrc.map((f) => logFileID(f) + ':' + f.size).join(',');
+    if (sel.dataset.sig === sig && sel.options.length) {
+        if (selected && sel.value !== selected) sel.value = selected;
+        return;
+    }
+    sel.dataset.sig = sig;
+    sel.innerHTML = ofSrc.map((f) => `<option value="${escHtml(logFileID(f))}">${escHtml(f.name)} (${fmtBytes(f.size)})</option>`).join('') || '<option value="">无日志文件</option>';
+    if (selected) sel.value = selected;
+    if (selected && sel.value !== selected && ofSrc.length) sel.selectedIndex = 0;
+}
 async function loadLogSnapshot() {
     const fileEl = $('logFile');
-    const q = new URLSearchParams({ node: nodeId(), n: '1200', lv: logLevels() });
+    const q = new URLSearchParams({ node: nodeId(), n: '1200', lv: logLevels(), source: currentLogSource() });
     if (fileEl && fileEl.value) q.set('file', fileEl.value);
     let d;
     try {
@@ -1233,27 +1460,21 @@ async function loadLogSnapshot() {
         logBuf = [];
         return;
     }
-    const files = d.files || [];
-    const sel = $('logFile');
-    if (sel) {
-        const sig = files.map((f) => f.name + ':' + f.size).join(',');
-        if (sel.dataset.sig !== sig) {
-            sel.dataset.sig = sig;
-            const cur = sel.value || d.file || '';
-            sel.innerHTML = files.map((f) => `<option value="${escHtml(f.name)}">${escHtml(f.name)} (${fmtBytes(f.size)})</option>`).join('') || '<option value="">无日志文件</option>';
-            if (cur) sel.value = cur;
-        }
-    }
+    const src = d.source || currentLogSource();
+    const srcEl = $('logSource');
+    if (srcEl && srcEl.value !== src) srcEl.value = src;
+    fillLogFileSelect(d.files || [], src, d.file || '');
     logOffset = Number(d.offset || d.size || 0);
     logBuf = Array.isArray(d.lines) ? d.lines.slice(-LOG_MAX) : [];
     lastLogText = '';
-    if ($('logMeta')) $('logMeta').textContent = [d.dir, d.file, (d.size ? fmtBytes(d.size) : ''), d.msg].filter(Boolean).join(' · ') || '本机 ZLM 日志';
+    const label = src === 'server' ? 'zlm-server' : 'zlm-client';
+    if ($('logMeta')) $('logMeta').textContent = [label, d.dir, d.name || d.file, (d.size ? fmtBytes(d.size) : ''), d.msg].filter(Boolean).join(' · ') || '本机日志';
     paintLogView(true);
 }
 function startLogStream() {
     if (pageFromPath() !== 'logs' || logES) return;
     const fileEl = $('logFile');
-    const q = new URLSearchParams({ node: nodeId(), offset: String(logOffset || 0), lv: logLevels() });
+    const q = new URLSearchParams({ node: nodeId(), offset: String(logOffset || 0), lv: logLevels(), source: currentLogSource() });
     if (fileEl && fileEl.value) q.set('file', fileEl.value);
     logES = new EventSource('/api/logs/stream?' + q);
     logES.onmessage = (ev) => {
@@ -1641,6 +1862,12 @@ async function playDash(url) {
             player.setXHRWithCredentialsForType('MediaSegment', true);
             player.setXHRWithCredentialsForType('InitializationSegment', true);
         }
+        const dashTok = playUrlToken(url);
+        if (dashTok && player.extend) {
+            player.extend('RequestModifier', () => ({
+                modifyRequestURL: (reqUrl) => withPlayToken(reqUrl, dashTok)
+            }), true);
+        }
         player.initialize(video, url, true);
         setPlayStatus('正在播放 DASH', 'ok');
         player.on(dashjs.MediaPlayer.events.ERROR, (e) => {
@@ -1665,7 +1892,7 @@ async function inspectPublicHls(url) {
     const text = await r.text();
     const map = /#EXT-X-MAP:URI="([^"]+)"/i.exec(text);
     if (map) {
-        const initUrl = new URL(map[1], url).href;
+        const initUrl = withPlayToken(new URL(map[1], url).href, playUrlToken(url));
         const ir = await fetch(initUrl, { cache: 'no-store', credentials: 'omit', mode: 'cors' });
         if (!ir.ok) {
             if (current && current.nodeId) {
@@ -1733,7 +1960,7 @@ async function playHlsAsync(url, label) {
             lowLatencyMode: false,
             liveSyncDurationCount: 3,
             preferManagedMediaSource: !!window.ManagedMediaSource,
-            xhrSetup: (xhr) => { xhr.withCredentials = false; }
+            xhrSetup: hlsXhrSetup(url)
         });
         hlsPlayer = hls;
         hls.loadSource(url);
@@ -2057,7 +2284,7 @@ async function previewFile(path, kind, playlist, role) {
                 lowLatencyMode: false,
                 liveSyncDurationCount: 2,
                 preferManagedMediaSource: !!window.ManagedMediaSource,
-                xhrSetup: (xhr) => { xhr.withCredentials = true; }
+                xhrSetup: hlsXhrSetup(url, true)
             });
             fileHls.on(Hls.Events.ERROR, (_, data) => {
                 if (!data || !data.fatal || gen !== filePlayGen) return;

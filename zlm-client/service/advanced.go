@@ -3,10 +3,13 @@ package service
 import (
 	"fmt"
 	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
-	"unicode"
+	"zlm-admin/core/config"
+	"zlm-admin/core/logger"
 )
 
 const (
@@ -15,12 +18,6 @@ const (
 	AdvancedDeleteSnapDir   = "deleteSnapDirectory"
 	AdvancedBroadcast       = "broadcastMessage"
 )
-
-var advancedBroadcastTemplates = map[string]string{
-	"maintenance": "服务即将维护，请稍后重新连接",
-	"offline":     "当前流即将下线",
-	"notice":      "",
-}
 
 var advancedPeriodPattern = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 var advancedMP4NamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+\.mp4$`)
@@ -49,6 +46,7 @@ func (h *Hub) AdvancedOperation(nodeID, user, action string, q url.Values) map[s
 		h.recordAudit(nodeID, user, action, advancedTarget(action, q), false, asString(result["msg"]))
 		return result
 	}
+	ApplyZLMIni(&n)
 	target := advancedTarget(action, q)
 	operationID, err := h.beginAuditedMutation(nodeID, user, action, target)
 	if err != nil {
@@ -69,14 +67,38 @@ func (h *Hub) AdvancedOperation(nodeID, user, action string, q url.Values) map[s
 	if err != nil {
 		return finish(advancedFailure(err.Error()), false)
 	}
+
+	localPath, localErr := "", error(nil)
+	switch action {
+	case AdvancedDeleteRecordDir:
+		localPath, localErr = deleteLocalRecordDir(n, vals.Get("app"), vals.Get("stream"), vals.Get("period"), vals.Get("name"))
+	case AdvancedDeleteSnapDir:
+		localPath, localErr = deleteLocalSnapDir(n, vals.Get("app"), vals.Get("stream"), vals.Get("file"))
+	}
+	if localErr != nil && !os.IsNotExist(localErr) {
+		logger.Warnf("高级删除本地失败 action=%s target=%s: %v", action, target, localErr)
+		return finish(advancedFailure(localErr.Error()), false)
+	}
+
 	result, err := h.zlm.callPOST(n, action, vals)
 	if action == AdvancedDeleteRecordDir {
 		result, err = interpretDeleteRecordDirectory(result, err)
+	}
+	if localPath != "" {
+		msg := advancedSuccessMessage(action)
+		if redacted := redactAbsolutePath(localPath); redacted != "" {
+			msg += " " + redacted
+		}
+		logger.Infor("高级删除已落地 action=%s path=%s", action, redactAbsolutePath(localPath))
+		return finish(map[string]any{"code": 0, "msg": msg, "path": redactAbsolutePath(localPath)}, true)
 	}
 	if err != nil {
 		msg := err.Error()
 		if result != nil && asString(result["msg"]) != "" {
 			msg = asString(result["msg"])
+		}
+		if action == AdvancedDeleteRecordDir || action == AdvancedDeleteSnapDir {
+			msg = "未找到可删除的目录（录制为 mp4/record/{app}/{stream}，截图为 snap/{stream}）"
 		}
 		if result == nil {
 			result = advancedFailure(msg)
@@ -99,7 +121,7 @@ func (h *Hub) AdvancedOperation(nodeID, user, action string, q url.Values) map[s
 
 func isAdvancedAction(action string) bool {
 	switch action {
-	case AdvancedRestart, AdvancedDeleteRecordDir, AdvancedDeleteSnapDir, AdvancedBroadcast:
+	case AdvancedRestart, AdvancedDeleteRecordDir, AdvancedDeleteSnapDir:
 		return true
 	default:
 		return false
@@ -111,11 +133,9 @@ func advancedSuccessMessage(action string) string {
 	case AdvancedRestart:
 		return "已请求重启 MediaServer"
 	case AdvancedDeleteRecordDir:
-		return "已删除受限录像目录"
+		return "已删除录像目录"
 	case AdvancedDeleteSnapDir:
-		return "已删除受限截图目录"
-	case AdvancedBroadcast:
-		return "已发送模板广播"
+		return "已删除截图目录"
 	default:
 		return "操作成功"
 	}
@@ -133,8 +153,6 @@ func advancedTarget(action string, q url.Values) string {
 		return strings.Join([]string{
 			defaultVhost(q.Get("vhost")), q.Get("app"), q.Get("stream"), q.Get("file"),
 		}, "/")
-	case AdvancedBroadcast:
-		return q.Get("schema") + "://" + defaultVhost(q.Get("vhost")) + "/" + q.Get("app") + "/" + q.Get("stream")
 	default:
 		return action
 	}
@@ -161,10 +179,12 @@ func validateAdvanced(action string, q url.Values) (url.Values, error) {
 			return nil, fmt.Errorf("不允许自定义删除根路径")
 		}
 		period := strings.TrimSpace(q.Get("period"))
-		if !advancedPeriodPattern.MatchString(period) {
-			return nil, fmt.Errorf("period 必须是 YYYY-MM-DD")
+		if period != "" {
+			if !advancedPeriodPattern.MatchString(period) {
+				return nil, fmt.Errorf("period 必须是 YYYY-MM-DD，留空则删除该流全部录像目录")
+			}
+			out.Set("period", period)
 		}
-		out.Set("period", period)
 		if name := strings.TrimSpace(q.Get("name")); name != "" {
 			if !advancedMP4NamePattern.MatchString(name) || strings.Contains(name, "..") {
 				return nil, fmt.Errorf("name 只能是普通 mp4 文件名")
@@ -185,44 +205,138 @@ func validateAdvanced(action string, q url.Values) (url.Values, error) {
 			out.Set("file", file)
 		}
 		return out, nil
-	case AdvancedBroadcast:
-		out, err := validateRecordIdentity(q, true)
-		if err != nil {
-			return nil, err
-		}
-		msg, err := resolveBroadcastMessage(q)
-		if err != nil {
-			return nil, err
-		}
-		out.Set("msg", msg)
-		return out, nil
 	default:
 		return nil, fmt.Errorf("不支持的高级操作")
 	}
 }
 
-func resolveBroadcastMessage(q url.Values) (string, error) {
-	tpl := strings.TrimSpace(q.Get("template"))
-	fixed, ok := advancedBroadcastTemplates[tpl]
-	if !ok {
-		return "", fmt.Errorf("广播模板必须是 maintenance/offline/notice")
+func deleteLocalRecordDir(n config.Node, app, stream, period, name string) (string, error) {
+	app, stream = strings.TrimSpace(app), strings.TrimSpace(stream)
+	if app == "" || stream == "" {
+		return "", fmt.Errorf("app/stream 必填")
 	}
-	if tpl != "notice" {
-		return fixed, nil
+	var bases []string
+	seen := map[string]bool{}
+	add := func(p string) {
+		p = filepath.Clean(strings.TrimSpace(p))
+		if p == "" || p == "." || seen[p] {
+			return
+		}
+		seen[p] = true
+		bases = append(bases, p)
 	}
-	msg := strings.TrimSpace(q.Get("msg"))
-	if msg == "" || len([]rune(msg)) > 200 {
-		return "", fmt.Errorf("notice 文本长度必须是 1..200")
+	if n.MP4Save != "" {
+		add(filepath.Join(n.MP4Save, "record", app, stream))
+		add(filepath.Join(n.MP4Save, "rec", app, stream))
+		add(filepath.Join(n.MP4Save, app, stream))
 	}
-	if strings.ContainsAny(msg, "<>&") {
-		return "", fmt.Errorf("notice 文本不得包含 HTML 标记")
+	if n.Root != "" {
+		add(filepath.Join(n.Root, "mp4", "record", app, stream))
+		add(filepath.Join(n.Root, "record", app, stream))
 	}
-	for _, r := range msg {
-		if unicode.IsControl(r) {
-			return "", fmt.Errorf("notice 文本含控制字符")
+	for _, d := range streamSearchDirs(n, app, stream) {
+		slash := filepath.ToSlash(d)
+		if strings.Contains(slash, "/record/") || strings.Contains(slash, "/rec/") ||
+			(n.MP4Save != "" && insideRoot(n.MP4Save, d)) {
+			add(d)
 		}
 	}
-	return msg, nil
+	return removeFirstExisting(n, bases, period, name, true)
+}
+
+func deleteLocalSnapDir(n config.Node, app, stream, file string) (string, error) {
+	stream = snapStreamName(stream)
+	if stream == "_" {
+		return "", fmt.Errorf("stream 必填")
+	}
+	root := snapRootOf(n)
+	bases := []string{
+		filepath.Join(root, stream),
+		filepath.Join(root, strings.TrimSpace(app), stream),
+	}
+	return removeFirstExisting(n, bases, "", file, false)
+}
+
+func removeFirstExisting(n config.Node, bases []string, period, leaf string, record bool) (string, error) {
+	roots := advancedDeleteRoots(n, record)
+	if len(roots) == 0 {
+		return "", os.ErrNotExist
+	}
+	var lastMissing error = os.ErrNotExist
+	for _, base := range bases {
+		target := base
+		if period != "" {
+			target = filepath.Join(target, period)
+		}
+		if leaf != "" {
+			target = filepath.Join(target, leaf)
+		}
+		abs, err := filepath.Abs(target)
+		if err != nil {
+			continue
+		}
+		if !insideAnyRoot(roots, abs) || isProtectedRoot(roots, abs) {
+			continue
+		}
+		st, err := os.Stat(abs)
+		if err != nil {
+			lastMissing = err
+			continue
+		}
+		if leaf != "" && st.IsDir() {
+			continue
+		}
+		if err := os.RemoveAll(abs); err != nil {
+			return "", fmt.Errorf("删除失败: %v", err)
+		}
+		return abs, nil
+	}
+	return "", lastMissing
+}
+
+func advancedDeleteRoots(n config.Node, record bool) []string {
+	var roots []string
+	add := func(p string) {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			return
+		}
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return
+		}
+		roots = append(roots, abs)
+	}
+	if record {
+		add(n.MP4Save)
+		add(n.Root)
+		if n.MP4Save != "" {
+			add(filepath.Dir(n.MP4Save))
+		}
+	} else {
+		add(snapRootOf(n))
+		add(n.Root)
+	}
+	return roots
+}
+
+func insideAnyRoot(roots []string, abs string) bool {
+	for _, root := range roots {
+		if insideRoot(root, abs) {
+			return true
+		}
+	}
+	return false
+}
+
+func isProtectedRoot(roots []string, abs string) bool {
+	clean := filepath.Clean(abs)
+	for _, root := range roots {
+		if filepath.Clean(root) == clean {
+			return true
+		}
+	}
+	return false
 }
 
 func interpretDeleteRecordDirectory(result map[string]any, err error) (map[string]any, error) {

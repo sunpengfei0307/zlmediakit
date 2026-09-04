@@ -106,6 +106,10 @@ func checkZLMKey(k, v string) []CfgIssue {
 		if err != nil || n < 0 || n > 4 {
 			return add(true, "日志等级须为 0-4（0=Trace 1=Debug 2=Info 3=Warn 4=Error）")
 		}
+	case name == "dir" && strings.HasPrefix(lk, "log."):
+		if v != "" && !looksAbs(v) {
+			return add(true, "日志目录须为绝对路径，例如 /data/zlm/log/zlm-server")
+		}
 	case name == "modify_stamp":
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 0 || n > 2 {
@@ -163,6 +167,8 @@ func CfgPlaceholder(k string) string {
 	switch {
 	case name == "level" && strings.HasPrefix(lk, "log."):
 		return "有效范围 0-4"
+	case name == "dir" && strings.HasPrefix(lk, "log."):
+		return "绝对路径，改后需重启"
 	case name == "modify_stamp":
 		return "有效范围 0 / 1 / 2"
 	case isBoolishKey(name, lk):
@@ -217,7 +223,7 @@ func isUintKey(name, lk string) bool {
 
 func isPathKey(name, lk string) bool {
 	return strings.Contains(name, "path") || strings.HasSuffix(name, "root") ||
-		name == "bin" || name == "file" || strings.Contains(lk, "save_path")
+		name == "bin" || name == "file" || name == "dir" || strings.Contains(lk, "save_path")
 }
 
 type OpsConfig struct {

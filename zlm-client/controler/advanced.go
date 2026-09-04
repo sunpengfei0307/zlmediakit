@@ -15,8 +15,6 @@ func advancedAction(raw string) (string, bool) {
 		return service.AdvancedDeleteRecordDir, true
 	case "delete-snap-dir":
 		return service.AdvancedDeleteSnapDir, true
-	case "broadcast":
-		return service.AdvancedBroadcast, true
 	default:
 		return "", false
 	}
@@ -31,7 +29,7 @@ func (Page) ConfigAdvanced(c *gin.Context) {
 	_ = c.Request.ParseForm()
 	q := url.Values{}
 	for _, key := range []string{
-		"schema", "vhost", "app", "stream", "period", "name", "file", "template", "msg",
+		"vhost", "app", "stream", "period", "name", "file",
 	} {
 		if value, exists := c.GetPostForm(key); exists {
 			q.Set(key, value)
@@ -55,8 +53,6 @@ func advancedActionLabel(action string) string {
 		return "已删除受限录像目录"
 	case service.AdvancedDeleteSnapDir:
 		return "已删除受限截图目录"
-	case service.AdvancedBroadcast:
-		return "已发送模板广播"
 	default:
 		return "高级操作完成"
 	}

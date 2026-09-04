@@ -472,12 +472,13 @@ func groupMedia(rows []map[string]any) []map[string]any {
 				"readers": asFloat(row["readerCount"]),
 			}
 		}
-		if isOriginSchema(schema, asString(row["originTypeStr"])) || asFloat(g["in_bps"]) == 0 {
+		origin := isOriginSchema(schema, asString(row["originTypeStr"]))
+		if origin || asFloat(g["in_bps"]) == 0 {
 			g["in_bps"] = bps
 			g["in_bytes"] = total
 			g["bytesSpeed"] = bps
 		}
-		if asFloat(row["aliveSecond"]) > asFloat(g["aliveSecond"]) {
+		if origin {
 			g["aliveSecond"] = row["aliveSecond"]
 		}
 		rc := asFloat(row["totalReaderCount"])
@@ -491,7 +492,6 @@ func groupMedia(rows []map[string]any) []map[string]any {
 		if rec, ok := row["isRecordingMP4"].(bool); ok {
 			g["isRecordingMP4"] = rec
 		}
-		origin := isOriginSchema(schema, asString(row["originTypeStr"]))
 		if origin {
 			g["originType"] = row["originType"]
 			g["originTypeStr"] = row["originTypeStr"]
@@ -565,6 +565,84 @@ func groupMedia(rows []map[string]any) []map[string]any {
 		out = append(out, g)
 	}
 	return out
+}
+
+func overlayPublisherStats(streams, sessions []map[string]any) {
+	if len(streams) == 0 || len(sessions) == 0 {
+		return
+	}
+	byIdent := map[string]map[string]any{}
+	byPeer := map[string]map[string]any{}
+	byMedia := map[string]map[string]any{}
+	pick := func(dst map[string]map[string]any, key string, row map[string]any) {
+		if key == "" || key == "|" || key == ":" {
+			return
+		}
+		if old, ok := dst[key]; ok && asFloat(old["aliveSecond"]) > 0 && asFloat(old["aliveSecond"]) <= asFloat(row["aliveSecond"]) {
+			return
+		}
+		dst[key] = row
+	}
+	for _, s := range sessions {
+		if id := asString(s["identifier"]); id != "" {
+			pick(byIdent, id, s)
+		}
+		if id := asString(s["id"]); id != "" {
+			pick(byIdent, id, s)
+		}
+		if ip := asString(s["peer_ip"]); ip != "" {
+			pick(byPeer, ip+":"+asString(s["peer_port"]), s)
+		}
+		if pub, _ := s["is_publisher"].(bool); pub {
+			pick(byMedia, asString(s["app"])+"|"+asString(s["stream"]), s)
+		}
+	}
+	for _, g := range streams {
+		var pub map[string]any
+		if sock, ok := g["originSock"].(map[string]any); ok {
+			pub = byIdent[asString(sock["identifier"])]
+		}
+		if pub == nil {
+			pub = byPeer[asString(g["origin_peer"])]
+		}
+		if pub == nil {
+			pub = byMedia[asString(g["app"])+"|"+asString(g["stream"])]
+		}
+		if pub == nil {
+			continue
+		}
+		if _, ok := pub["aliveSecond"]; ok {
+			g["aliveSecond"] = asFloat(pub["aliveSecond"])
+		}
+		if ip := asString(pub["peer_ip"]); ip != "" {
+			g["origin_peer"] = ip + ":" + asString(pub["peer_port"])
+		}
+		if b := asFloat(firstPresent(pub, "totalBytes", "bytes")); b > 0 {
+			g["in_bytes"] = b
+			g["read_size"] = b
+		}
+		if bps := asFloat(firstPresent(pub, "bytesSpeed", "bytes_speed")); bps > 0 {
+			g["in_bps"] = bps
+			g["bytesSpeed"] = bps
+			ch := asFloat(g["channels"])
+			if ch <= 0 {
+				ch = 2
+			}
+			audioBps := 0.0
+			if asString(g["audio_codec"]) != "" && asString(g["audio_codec"]) != "-" {
+				audioBps = 16000 * (ch / 2)
+			}
+			if audioBps > bps*0.4 {
+				audioBps = bps * 0.08
+			}
+			g["audio_bps"] = audioBps
+			g["video_bps"] = bps - audioBps
+			if asFloat(g["video_bps"]) < 0 {
+				g["video_bps"] = 0
+			}
+			g["out_bps"] = bps * asFloat(g["totalReaderCount"])
+		}
+	}
 }
 
 func mediaInfoSchemas(g map[string]any) []string {
@@ -646,6 +724,10 @@ func (c *zlmClient) refreshGroupedTracks(node config.Node, grouped []map[string]
 					continue
 				}
 				applyTracks(g, tracks)
+				if sock, ok := v["originSock"].(map[string]any); ok {
+					g["originSock"] = sock
+					g["origin_peer"] = asString(sock["peer_ip"]) + ":" + asString(sock["peer_port"])
+				}
 				if asString(g["video_codec"]) != "" && asString(g["video_codec"]) != "-" {
 					g["tracks_from_origin"] = true
 					return
@@ -943,7 +1025,7 @@ func (c *zlmClient) callJSON(node config.Node, api string, body any) (map[string
 	return out, sanitizeZLMTransportError(node, err)
 }
 
-func (c *zlmClient) webrtcPlay(node config.Node, app, stream, typ, offer, publicIP string) ([]byte, int, error) {
+func (c *zlmClient) webrtcPlay(node config.Node, app, stream, typ, offer, publicIP, token string) ([]byte, int, error) {
 	c.ensureExternIP(node, publicIP)
 	if typ == "" {
 		typ = "play"
@@ -957,6 +1039,9 @@ func (c *zlmClient) webrtcPlay(node config.Node, app, stream, typ, offer, public
 	q.Set("app", app)
 	q.Set("stream", stream)
 	q.Set("type", typ)
+	if token != "" {
+		q.Set("token", token)
+	}
 	u.RawQuery = q.Encode()
 	req, err := http.NewRequest(http.MethodPost, u.String(), strings.NewReader(offer))
 	if err != nil {
@@ -1015,7 +1100,7 @@ func playLinks(host string, n config.Node, vhost, app, stream string) []PlayLink
 	dashOut := dashOutputFile(n, vhost, app, stream)
 	dashCmd := dashFFmpegCmd(rtmpLocal, dashOut)
 	dashMPD := fmt.Sprintf("%s/%s/dash.mpd", httpBase, key)
-	return []PlayLink{
+	links := []PlayLink{
 		{ID: "http-flv", Label: "HTTP-FLV", URL: fmt.Sprintf("%s/%s.live.flv", httpBase, key), WebPlay: true},
 		{ID: "ws-flv", Label: "WS-FLV", URL: fmt.Sprintf("ws://%s:%d/%s.live.flv", host, httpPort, key), WebPlay: true},
 		{ID: "hls", Label: "HLS", URL: fmt.Sprintf("%s/%s/hls.m3u8", httpBase, key), WebPlay: true},
@@ -1047,6 +1132,13 @@ func playLinks(host string, n config.Node, vhost, app, stream string) []PlayLink
 			{"label": "说明", "url": "ZLM 不直接出 DASH。默认关闭虚拟主机，MPD 写到 /data/zlm/{app}/{stream}/dash.mpd，打开 http://host:8090/ 即可浏览 live、mp4 等目录"},
 		}},
 	}
+	for i := range links {
+		links[i].URL = withStreamPlayToken(links[i].URL, app, stream)
+		for j := range links[i].Extra {
+			links[i].Extra[j]["url"] = withStreamPlayToken(links[i].Extra[j]["url"], app, stream)
+		}
+	}
+	return links
 }
 
 func dashOutputFile(n config.Node, vhost, app, stream string) string {

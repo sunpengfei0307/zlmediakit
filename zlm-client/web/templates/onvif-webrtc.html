@@ -20,9 +20,9 @@
       </div>
       <span class="chip">{{len .Devices}} 项</span>
     </div>
-    <form method="post" action="/onvif-webrtc/scan" hx-post="/onvif-webrtc/scan" hx-target="#content" hx-confirm="确认在所填 IPv4 子网执行 ONVIF 主动广播发现？" class="form-grid">
-      <label class="field" for="onvif-timeout"><span>超时 timeout_ms（500..10000）</span><input id="onvif-timeout" name="timeout_ms" type="number" min="500" max="10000" value="3000" required></label>
-      <label class="field field-wide" for="onvif-subnet"><span>三段 IPv4 前缀（可空）</span><input id="onvif-subnet" name="subnet_prefix" placeholder="例如 192.168.1；也可提交完整 IPv4 或 /24 CIDR，服务端统一转为前三段"></label>
+    <form method="post" action="/onvif-webrtc/scan" hx-post="/onvif-webrtc/scan" hx-target="#content" hx-confirm="确认在所填 IPv4 子网执行 ONVIF 主动广播发现？" class="form-grid form-oneline">
+      <label class="field field-timeout" for="onvif-timeout"><span>超时 timeout_ms（500..10000）</span><input id="onvif-timeout" name="timeout_ms" type="number" min="500" max="10000" value="3000" required></label>
+      <label class="field field-grow" for="onvif-subnet"><span>三段 IPv4 前缀（可空）</span><input id="onvif-subnet" name="subnet_prefix" placeholder="例如 192.168.1；也可提交完整 IPv4 或 /24 CIDR，服务端统一转为前三段"></label>
       <div class="source-form-action"><button class="ghost ghost-primary" type="submit" aria-label="开始 ONVIF 主动发现">开始发现</button></div>
     </form>
     <div class="table-wrap proto-table">
@@ -47,10 +47,12 @@
     </div>
     <form method="post" action="/onvif-webrtc/import-pull" hx-post="/onvif-webrtc/import-pull" hx-target="#content" hx-confirm="确认把已验证的 RTSP 地址导入为拉流代理？请再次核对 app / stream。" class="form-grid">
       <label class="field field-wide" for="import-url"><span>已验证的 RTSP/RTSPS URL</span><input id="import-url" name="url" type="url" placeholder="rtsp://user:password@camera/live" required></label>
-      <label class="field" for="import-app"><span>App</span><input id="import-app" name="app" value="live" required></label>
-      <label class="field" for="import-stream"><span>Stream</span><input id="import-stream" name="stream" required></label>
-      <label class="field" for="import-vhost"><span>Vhost</span><input id="import-vhost" name="vhost" value="__defaultVhost__" required></label>
-      <div class="source-form-action"><button class="ghost ghost-primary" type="submit" aria-label="确认导入 RTSP 拉流代理">确认导入</button></div>
+      <div class="form-oneline field-wide">
+        <label class="field" for="import-app"><span>App</span><input id="import-app" name="app" value="live" required></label>
+        <label class="field" for="import-stream"><span>Stream</span><input id="import-stream" name="stream" required></label>
+        <label class="field field-grow" for="import-vhost"><span>Vhost</span><input id="import-vhost" name="vhost" value="__defaultVhost__" required></label>
+        <div class="source-form-action"><button class="ghost ghost-primary" type="submit" aria-label="确认导入 RTSP 拉流代理">确认导入</button></div>
+      </div>
     </form>
   </article>
   </div>

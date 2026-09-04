@@ -279,7 +279,22 @@ func connRows(m map[string]any) []map[string]any {
 			"peer_ip": ip, "peer_port": port,
 		})
 	}
+	markPeerACL(out)
 	return out
+}
+
+func markPeerACL(rows []map[string]any) {
+	if service.H == nil {
+		return
+	}
+	for _, row := range rows {
+		if row == nil {
+			continue
+		}
+		black, white := service.H.PeerIPListed(asStr(row["peer_ip"]))
+		row["ip_black"] = black
+		row["ip_white"] = white
+	}
 }
 
 func asAnyMaps(v any) []map[string]any {
@@ -316,6 +331,7 @@ func (Page) Sessions(c *gin.Context) {
 		}
 		rows = append(rows, s)
 	}
+	markPeerACL(rows)
 	rows = sortSessionMaps(rows, lq.Sort, lq.Dir)
 	total := len(rows)
 	paged, page, size := paginateMaps(rows, lq.Page, lq.Size)
@@ -461,14 +477,7 @@ func (Page) Files(c *gin.Context) {
 	segMin := 10
 	recMode := "segment"
 	if cfg, ok := d["record_cfg"].(map[string]any); ok {
-		if asStr(cfg["mode"]) == "single" {
-			recMode = "single"
-		}
-		if sec := asI(cfg["mp4_max_second"]); sec >= 60 {
-			segMin = sec / 60
-		} else if sec > 0 {
-			segMin = 1
-		}
+		recMode, segMin = recordPrefFromSeconds(asI(cfg["mp4_max_second"]))
 	}
 	recKind := "mp4"
 	if proto == "hls" {
@@ -593,12 +602,37 @@ func asGroupSlice(v any) []map[string]any {
 	}
 }
 
+func recordPrefMaxSecond(mode string, segMin int) int {
+	if strings.TrimSpace(mode) == "single" {
+		return 31536000
+	}
+	if segMin < 1 {
+		segMin = 10
+	}
+	return segMin * 60
+}
+
+func recordPrefFromSeconds(sec int) (string, int) {
+	if sec >= 86400 {
+		return "single", 10
+	}
+	if sec >= 60 {
+		return "segment", sec / 60
+	}
+	if sec > 0 {
+		return "segment", 1
+	}
+	return "segment", 10
+}
+
 func filesRecordAction(op string) (string, bool) {
 	switch strings.TrimSpace(op) {
 	case "start":
 		return "startRecord", true
 	case "stop":
 		return "stopRecord", true
+	case "pref":
+		return "setRecordPref", true
 	default:
 		return "", false
 	}
@@ -612,15 +646,7 @@ func (Page) FilesRecord(c *gin.Context) {
 	}
 	maxSec := strings.TrimSpace(c.PostForm("max_second"))
 	if maxSec == "" {
-		if c.PostForm("mode") == "single" {
-			maxSec = "31536000"
-		} else {
-			min := asI(c.PostForm("seg_min"))
-			if min < 1 {
-				min = 10
-			}
-			maxSec = fmt.Sprintf("%d", min*60)
-		}
+		maxSec = fmt.Sprintf("%d", recordPrefMaxSecond(c.PostForm("mode"), asI(c.PostForm("seg_min"))))
 	}
 	q := url.Values{
 		"vhost": {c.PostForm("vhost")},
@@ -630,8 +656,11 @@ func (Page) FilesRecord(c *gin.Context) {
 	}
 	result := service.H.RecordVODOperation(firstNodeID(), loginUserOf(c), action, q)
 	success := "已开始录制"
-	if action == "stopRecord" {
+	switch action {
+	case "stopRecord":
 		success = "已停止录制"
+	case "setRecordPref":
+		success = "已保存切片时长"
 	}
 	msg := operationPageMessage(result, success, "录制操作失败")
 	setToast(c, msg)
@@ -1133,6 +1162,191 @@ func (Page) Push(c *gin.Context) {
 	Page{}.render(c, "push", gin.H{})
 }
 
+func (Page) Auth(c *gin.Context) {
+	view := map[string]any{}
+	if service.H != nil {
+		view = service.H.StreamAuthView()
+	}
+	Page{}.render(c, "auth", gin.H{"Auth": view})
+}
+
+func authDone(c *gin.Context, msg string) {
+	setToast(c, msg)
+	Page{}.Auth(c)
+}
+
+func (Page) AuthEnable(c *gin.Context) {
+	on := c.PostForm("enabled") == "1"
+	if service.H != nil {
+		if err := service.H.SetStreamAuthEnabled(on); err != nil {
+			authDone(c, "更新鉴权开关失败: "+err.Error())
+			return
+		}
+	}
+	if on {
+		authDone(c, "已启用鉴权。受限 App/Stream 的推拉需带 ?token=；未限制的流不受影响")
+		return
+	}
+	authDone(c, "已关闭推拉流 Token 鉴权")
+}
+
+func (Page) AuthAdd(c *gin.Context) {
+	days, _ := strconv.Atoi(strings.TrimSpace(c.PostForm("expire_days")))
+	if service.H == nil {
+		authDone(c, "服务未就绪")
+		return
+	}
+	_, err := service.H.AddStreamAuthToken(
+		c.PostForm("name"), c.PostForm("token"),
+		c.PostForm("allow_push") == "1", c.PostForm("allow_play") == "1",
+		c.PostForm("app"), c.PostForm("stream"), days,
+	)
+	if err != nil {
+		authDone(c, "新增失败: "+err.Error())
+		return
+	}
+	authDone(c, "已新增 Token，并已开启推拉流鉴权。推流/播放 URL 需带 ?token=")
+}
+
+func (Page) AuthDelete(c *gin.Context) {
+	if service.H != nil {
+		if err := service.H.DeleteStreamAuthToken(c.PostForm("id")); err != nil {
+			authDone(c, "删除失败: "+err.Error())
+			return
+		}
+	}
+	authDone(c, "已删除 Token")
+}
+
+func (Page) AuthToggle(c *gin.Context) {
+	if service.H != nil {
+		if err := service.H.ToggleStreamAuthToken(c.PostForm("id"), c.PostForm("enabled") == "1"); err != nil {
+			authDone(c, "更新失败: "+err.Error())
+			return
+		}
+	}
+	authDone(c, "已更新 Token 状态")
+}
+
+func streamIPAddDirs(from string, push, play bool) (bool, bool) {
+	switch from {
+	case "sessions", "streams":
+		return true, true
+	default:
+		return push, play
+	}
+}
+
+func authIPDone(c *gin.Context, msg string) {
+	setToast(c, msg)
+	switch c.PostForm("from") {
+	case "sessions":
+		applyListForm(c)
+		c.Request.Method = http.MethodGet
+		c.Request.URL.RawQuery = listQueryValues(parseListQuery(c, "media", "asc")).Encode()
+		Page{}.Sessions(c)
+	case "streams":
+		if c.PostForm("app") != "" && c.PostForm("stream") != "" {
+			id := c.DefaultPostForm("node", firstNodeID())
+			c.Request.Method = http.MethodGet
+			c.Request.URL.RawQuery = url.Values{
+				"node": {id}, "vhost": {c.PostForm("vhost")},
+				"app": {c.PostForm("app")}, "stream": {c.PostForm("stream")},
+				"sid": {c.PostForm("sid")},
+			}.Encode()
+			Page{}.StreamConns(c)
+			return
+		}
+		c.Status(http.StatusNoContent)
+	default:
+		Page{}.Auth(c)
+	}
+}
+
+func (Page) AuthIPMode(c *gin.Context) {
+	if service.H == nil {
+		authDone(c, "服务未就绪")
+		return
+	}
+	if err := service.H.SetStreamIPMode(c.PostForm("mode")); err != nil {
+		authDone(c, "更新 IP 策略失败: "+err.Error())
+		return
+	}
+	switch c.PostForm("mode") {
+	case "allow":
+		authDone(c, "已启用放行模式：默认放行，命中黑名单的推/拉会被拒绝")
+	case "deny":
+		authDone(c, "已启用禁止模式：默认拒绝，仅白名单 IP 可推/拉")
+	default:
+		authDone(c, "已关闭 IP 限制，全部放行")
+	}
+}
+
+func (Page) AuthIPAdd(c *gin.Context) {
+	if service.H == nil {
+		authIPDone(c, "服务未就绪")
+		return
+	}
+	push, play := streamIPAddDirs(c.PostForm("from"), c.PostForm("allow_push") == "1", c.PostForm("allow_play") == "1")
+	item, err := service.H.AddStreamIPRule(
+		c.PostForm("ip"), c.PostForm("list"), push, play, c.PostForm("note"),
+	)
+	if err != nil {
+		authIPDone(c, "加入名单失败: "+err.Error())
+		return
+	}
+	kind := "黑名单"
+	if item.List == "white" {
+		kind = "白名单"
+	}
+	msg := "已将 " + item.IP + " 加入" + kind
+	if item.List == "black" {
+		kicked := service.H.KickPeerIPAllNodes(item.IP)
+		msg += "。已禁止该 IP 的推流和拉流，并踢掉全部在线连接"
+		if kicked > 0 {
+			msg += " " + strconv.Itoa(kicked) + " 条"
+		}
+	} else {
+		msg += "。默认允许该 IP 的推流和拉流；禁止模式下才会按白名单放行"
+	}
+	authIPDone(c, msg)
+}
+
+func (Page) AuthIPToggle(c *gin.Context) {
+	if service.H == nil {
+		authDone(c, "服务未就绪")
+		return
+	}
+	on := c.PostForm("enabled") == "1"
+	item, err := service.H.ToggleStreamIPRule(c.PostForm("id"), on)
+	if err != nil {
+		authDone(c, "更新失败: "+err.Error())
+		return
+	}
+	msg := "已停用 IP 规则 " + item.IP
+	if on {
+		msg = "已启用 IP 规则 " + item.IP
+		if item.List == "black" {
+			kicked := service.H.KickPeerIPAllNodes(item.IP)
+			msg += "，并踢掉该 IP 的全部推拉连接"
+			if kicked > 0 {
+				msg += " " + strconv.Itoa(kicked) + " 条"
+			}
+		}
+	}
+	authDone(c, msg)
+}
+
+func (Page) AuthIPDelete(c *gin.Context) {
+	if service.H != nil {
+		if err := service.H.DeleteStreamIPRule(c.PostForm("id")); err != nil {
+			authDone(c, "删除失败: "+err.Error())
+			return
+		}
+	}
+	authDone(c, "已删除 IP 规则")
+}
+
 func (Page) Events(c *gin.Context) {
 	tab := "events"
 	if c.Query("tab") == "logs" {
@@ -1148,13 +1362,14 @@ func (Page) Logs(c *gin.Context) {
 func observePayload(c *gin.Context, tab string) gin.H {
 	id := firstNodeID()
 	file := c.Query("file")
+	source := c.DefaultQuery("source", "client")
 	lv := c.DefaultQuery("lv", "DIWE")
 	q := c.Query("q")
 	var events any
 	var logs any
 	if service.H != nil {
 		events = service.H.Events()
-		logs = service.H.Logs(id, file, lv, 1200)
+		logs = service.H.Logs(id, file, source, lv, 1200)
 	} else {
 		events = map[string]any{}
 		logs = map[string]any{}

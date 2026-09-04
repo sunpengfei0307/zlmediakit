@@ -58,7 +58,43 @@
         <td>{{asStr (index . "role")}}</td>
         <td class="muted">{{asStr (index . "note")}}</td>
         <td>{{asStr (index . "name")}}{{if not (asStr (index . "name"))}}{{asStr (index . "typeid")}}{{end}}</td>
-        <td>{{asStr (index . "peer_ip")}}{{if index . "peer_port"}}:{{asStr (index . "peer_port")}}{{end}}</td>
+        <td class="peer-cell">
+          <span>{{asStr (index . "peer_ip")}}{{if index . "peer_port"}}:{{asStr (index . "peer_port")}}{{end}}</span>
+          {{if and (asStr (index . "peer_ip")) (or (eq (asStr (index . "role")) "推流") (eq (asStr (index . "role")) "拉流"))}}
+          <div class="act-row peer-acl">
+            {{if index . "ip_black"}}
+            <button class="ghost ghost-danger" type="button" disabled title="已在黑名单">黑名单</button>
+            {{else}}
+            <form method="post" action="/auth/ip/add" hx-post="/auth/ip/add" hx-target="#content" hx-swap="innerHTML"
+              hx-confirm="确认将 {{asStr (index . "peer_ip")}} 加入黑名单？将立即禁止并踢掉该 IP 的全部推拉连接。">
+              <input type="hidden" name="ip" value="{{asStr (index . "peer_ip")}}" />
+              <input type="hidden" name="list" value="black" />
+              <input type="hidden" name="allow_push" value="1" />
+              <input type="hidden" name="allow_play" value="1" />
+              <input type="hidden" name="note" value="连接管理 推拉" />
+              <input type="hidden" name="from" value="sessions" />
+              <input type="hidden" name="view_q" value="{{$.Q}}" />
+              <button class="ghost ghost-danger" type="submit">黑名单</button>
+            </form>
+            {{end}}
+            {{if index . "ip_white"}}
+            <button class="ghost" type="button" disabled title="已在白名单">白名单</button>
+            {{else}}
+            <form method="post" action="/auth/ip/add" hx-post="/auth/ip/add" hx-target="#content" hx-swap="innerHTML"
+              hx-confirm="确认将 {{asStr (index . "peer_ip")}} 加入白名单？默认允许该 IP 的推流和拉流（禁止模式下生效）。">
+              <input type="hidden" name="ip" value="{{asStr (index . "peer_ip")}}" />
+              <input type="hidden" name="list" value="white" />
+              <input type="hidden" name="allow_push" value="1" />
+              <input type="hidden" name="allow_play" value="1" />
+              <input type="hidden" name="note" value="连接管理 推拉" />
+              <input type="hidden" name="from" value="sessions" />
+              <input type="hidden" name="view_q" value="{{$.Q}}" />
+              <button class="ghost" type="submit">白名单</button>
+            </form>
+            {{end}}
+          </div>
+          {{end}}
+        </td>
         <td>{{asStr (index . "local_ip")}}{{if index . "local_port"}}:{{asStr (index . "local_port")}}{{end}}</td>
         <td>{{if asStr (index . "media_key")}}{{asStr (index . "media_key")}}{{else if and (index . "app") (index . "stream")}}{{asStr (index . "app")}}/{{asStr (index . "stream")}}{{else}}-{{end}}</td>
         <td class="muted">{{asStr (index . "id")}}</td>

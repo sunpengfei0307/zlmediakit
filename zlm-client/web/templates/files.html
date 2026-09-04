@@ -71,7 +71,18 @@
 {{if and (or (eq .Proto "record") (eq .Proto "hls")) (or (eq .Panel "record") (not .Panel))}}
 <article class="rec-bar" id="recRecordBar" title="开始录制会先写入内存里的 GOP 缓存，停止会等到下一个关键帧。流 GOP 较长时，文件会明显长于点击间隔。">
   <span class="rec-bar-title">录制 <em>{{if eq .Proto "record"}}MP4 文件{{else}}HLS 切片{{end}}</em></span>
-  <div class="rec-toolbar rec-compact">
+  <form id="recPrefForm" method="post" action="/files/record/pref"
+    hx-post="/files/record/pref" hx-target="#content" hx-push-url="true" hx-swap="innerHTML"
+    hx-trigger="change, keyup changed delay:400ms" hx-disinherit="*" data-zlm-post class="rec-toolbar rec-compact"
+    title="修改后立即写入 ZLM protocol.mp4_max_second，刷新后仍保留">
+    <input type="hidden" name="app" value="{{.App}}" />
+    <input type="hidden" name="stream" value="{{.Stream}}" />
+    <input type="hidden" name="proto" value="{{.Proto}}" />
+    <input type="hidden" name="view_panel" value="record" />
+    <input type="hidden" name="view_q" value="{{asStr .Q}}" />
+    <input type="hidden" name="view_sort" value="{{asStr .Sort}}" />
+    <input type="hidden" name="view_dir" value="{{asStr .Dir}}" />
+    {{if .Size}}<input type="hidden" name="view_size" value="{{.Size}}">{{end}}
     <label class="field" for="recMode"><span>方式</span>
     <select id="recMode" name="mode" title="录制方式">
       <option value="segment" {{if ne .RecMode "single"}}selected{{end}}>按时长切片</option>
@@ -80,7 +91,7 @@
     <label class="field muted" id="recSegWrap"><span>每段分钟</span>
       <input id="recSegMin" name="seg_min" type="number" min="1" value="{{.RecSegMin}}" />
     </label>
-  </div>
+  </form>
   {{if .RecOn}}<span class="rec-bar-status status-on" role="status">正在录制，请点「停止录制」</span>
   {{else}}<span class="rec-bar-status muted" role="status">未在录制</span>{{end}}
   <div class="rec-topbar-actions">
@@ -193,9 +204,9 @@
         <td class="col-file">
           <div class="file-name-cell">
             {{if .VodLoaded}}
-            <button class="file-jump" type="button" data-play="{{.PlaySID}}" title="预览点播流">{{.Name}}</button>
+            <button class="file-jump" type="button" data-play="{{.PlaySID}}" title="{{.Name}}">{{.Name}}</button>
             {{else}}
-            <button class="file-jump file-play" type="button" data-path="{{.Path}}" data-kind="{{.Kind}}" data-role="{{.Role}}" data-playlist="{{.Playlist}}" title="{{if or (eq .Ext ".jpg") (eq .Ext ".jpeg") (eq .Kind "snap")}}预览图片{{else}}预览文件{{end}}">{{.Name}}</button>
+            <button class="file-jump file-play" type="button" data-path="{{.Path}}" data-kind="{{.Kind}}" data-role="{{.Role}}" data-playlist="{{.Playlist}}" title="{{.Name}}">{{.Name}}</button>
             {{end}}
             {{if .VodLoaded}}<span class="vod-flag" title="已加载为点播流 {{.VodApp}}/{{.VodStream}}">点播中 {{.VodApp}}/{{.VodStream}}</span>{{end}}
             {{if eq .Ext ".mp4"}}<span class="vod-badge{{if .VodLoaded}} is-on{{end}}" title="{{if .VodLoaded}}已加载为点播{{else}}可加载为点播{{end}}">点播</span>{{end}}
@@ -209,13 +220,13 @@
         <td class="col-rec-act">
           <div class="act-row">
             {{if .VodLoaded}}
-            <button class="ghost btn-play" type="button" data-play="{{.PlaySID}}">预览点播</button>
+            <button class="ghost btn-play" type="button" data-play="{{.PlaySID}}">预览</button>
             {{else}}
             <button class="ghost file-play" type="button" data-path="{{.Path}}" data-kind="{{.Kind}}" data-role="{{.Role}}" data-playlist="{{.Playlist}}" title="{{if or (eq .Ext ".jpg") (eq .Ext ".jpeg") (eq .Kind "snap")}}预览图片{{else}}预览文件{{end}}">预览</button>
             {{end}}
             <a class="ghost" href="/api/node/{{$.NodeID}}/file?path={{urlquery .Path}}&dl=1" download="{{.Name}}">下载</a>
             {{if .VodLoaded}}
-            <button class="ghost file-copy" type="button" data-url="{{.PlayURL}}">复制播放链接</button>
+            <button class="ghost file-copy" type="button" data-url="{{.PlayURL}}">复制链接</button>
             {{else}}
             <button class="ghost file-copy" type="button" data-path="{{.Path}}">复制链接</button>
             {{end}}

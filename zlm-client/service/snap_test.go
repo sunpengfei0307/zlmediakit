@@ -43,6 +43,72 @@ func TestSnapPaths(t *testing.T) {
 	}
 }
 
+func TestSnapAndDashPlayURLFollowsAuthToken(t *testing.T) {
+	kv, err := OpenLocalKV(filepath.Join(t.TempDir(), "zlm-admin.kv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer kv.Close()
+	h := &Hub{kv: kv}
+	prev := H
+	H = h
+	t.Cleanup(func() { H = prev })
+	n := config.Node{RTMPPort: 1935}
+	if snapPlayURL(n, "live", "ls_zlm_h264_1080p") != "rtmp://127.0.0.1:1935/live/ls_zlm_h264_1080p" {
+		t.Fatal("unrestricted snap url must stay anonymous")
+	}
+	if _, err := h.AddStreamAuthToken("cam", "secret-token", true, true, "live", "ls_zlm_h264_1080p", 0); err != nil {
+		t.Fatal(err)
+	}
+	want := "rtmp://127.0.0.1:1935/live/ls_zlm_h264_1080p?token=secret-token"
+	if got := snapPlayURL(n, "live", "ls_zlm_h264_1080p"); got != want {
+		t.Fatalf("snap url=%s", got)
+	}
+	if got := localRTMPPlayURL(n, "live", "ls_zlm_h264_1080p"); got != want {
+		t.Fatalf("dash url=%s", got)
+	}
+	if got := snapPlayURL(n, "live", "other"); got != "rtmp://127.0.0.1:1935/live/other" {
+		t.Fatalf("other stream=%s", got)
+	}
+	args := strings.Join(persistentSnapArgs(n, snapTarget{App: "live", Stream: "ls_zlm_h264_1080p"}, 15), " ")
+	if !strings.Contains(args, "-i "+want) {
+		t.Fatalf("persistent snap args missing token: %s", args)
+	}
+	if !dashJobStale(&dashJob{out: "/data/zlm/live/cam/dash.mpd", src: "rtmp://127.0.0.1:1935/live/cam"}, "/data/zlm/live/cam/dash.mpd", want) {
+		t.Fatal("dash job must restart when play token appears")
+	}
+}
+
+func TestAuthChangeCancelsDashJobsForTokenRefresh(t *testing.T) {
+	h := &Hub{}
+	cancelled := false
+	dashMu.Lock()
+	prev := dashJobs
+	dashJobs = map[string]*dashJob{
+		"zlm-1|live|cam": {
+			out: "/tmp/dash.mpd",
+			src: "rtmp://127.0.0.1:1935/live/cam",
+			cancel: func() { cancelled = true },
+		},
+	}
+	dashMu.Unlock()
+	t.Cleanup(func() {
+		dashMu.Lock()
+		dashJobs = prev
+		dashMu.Unlock()
+	})
+	h.afterStreamAuthChanged()
+	if !cancelled {
+		t.Fatal("running dash ffmpeg must stop after auth change")
+	}
+	dashMu.Lock()
+	_, ok := dashJobs["zlm-1|live|cam"]
+	dashMu.Unlock()
+	if ok {
+		t.Fatal("stale dash job must be dropped so EnsureDASH can restart with token")
+	}
+}
+
 func TestScheduledSnapTargetsDeduplicatesSchemasAndSkipsAudioOnly(t *testing.T) {
 	video := []any{map[string]any{"codec_type": float64(0), "ready": true}}
 	audio := []any{map[string]any{"codec_type": float64(1), "ready": true}}

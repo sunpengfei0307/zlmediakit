@@ -119,7 +119,12 @@ func uniqueSnapPath(p string) string {
 }
 
 func snapPlayURL(n config.Node, app, stream string) string {
-	return fmt.Sprintf("rtmp://127.0.0.1:%d/%s/%s", nz(n.RTMPPort, 1935), app, stream)
+	return localRTMPPlayURL(n, app, stream)
+}
+
+func localRTMPPlayURL(n config.Node, app, stream string) string {
+	u := fmt.Sprintf("rtmp://127.0.0.1:%d/%s/%s", nz(n.RTMPPort, 1935), app, stream)
+	return withStreamPlayToken(u, app, stream)
 }
 
 func writeJPEG(path string, body []byte) error {

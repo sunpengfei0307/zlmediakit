@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"zlm-admin/core/config"
@@ -54,6 +55,39 @@ func hookReply(event string) map[string]any {
 		resp["passwd"] = ""
 	}
 	return resp
+}
+
+func publisherFlowEnded(body map[string]any) bool {
+	if body == nil {
+		return false
+	}
+	if _, ok := body["player"]; !ok {
+		return false
+	}
+	return !asTruthy(body["player"])
+}
+
+func (h *Hub) closeDisconnectedPublisher(nodeID string, body map[string]any) {
+	if h == nil || body == nil {
+		return
+	}
+	app := strings.TrimSpace(asString(body["app"]))
+	stream := strings.TrimSpace(asString(body["stream"]))
+	if app == "" || stream == "" {
+		return
+	}
+	vhost := strings.TrimSpace(asString(body["vhost"]))
+	if vhost == "" {
+		vhost = "__defaultVhost__"
+	}
+	result := h.CoreOperation(nodeID, "hook", "close_streams", url.Values{
+		"vhost": {vhost}, "app": {app}, "stream": {stream},
+	})
+	if operationSucceeded(result) {
+		logger.Infor("hook 推流断开已立即关流 %s/%s/%s node=%s %s", vhost, app, stream, nodeID, asString(result["msg"]))
+		return
+	}
+	logger.Warnf("hook 推流断开关流失败 %s/%s/%s node=%s: %s", vhost, app, stream, nodeID, asString(result["msg"]))
 }
 
 func hookShouldStore(event string) bool {

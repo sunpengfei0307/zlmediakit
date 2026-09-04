@@ -7,6 +7,7 @@ DATA="${ZLM_DATA:-/data/zlm}"
 BIN="${DATA}/bin"
 CFG="${DATA}/cfg"
 LOG="${DATA}/log"
+SERVER_LOG="${LOG}/zlm-server"
 RUN="${DATA}/run"
 LOCK="${RUN}/control.lock"
 TIMEOUT="${ZLM_CTL_TIMEOUT:-20}"
@@ -110,7 +111,7 @@ sysctl_run() {
 }
 
 ensure_dirs() {
-  as_root mkdir -p "${BIN}" "${CFG}" "${LOG}" "${RUN}" "${DATA}/mp4" "${DATA}/snap"
+  as_root mkdir -p "${BIN}" "${CFG}" "${LOG}" "${SERVER_LOG}" "${RUN}" "${DATA}/mp4" "${DATA}/snap"
 }
 
 acquire_lock() {
@@ -147,8 +148,66 @@ for raw in lines:
     if k.strip() == key:
         print(v.strip())
         sys.exit(0)
-sys.exit(1)
+    sys.exit(1)
 PY
+}
+
+ini_set() {
+  local file=$1 section=$2 key=$3 value=$4
+  python3 - "$file" "$section" "$key" "$value" <<'PY'
+import sys
+path, section, key, value = sys.argv[1:5]
+try:
+    text = open(path, encoding="utf-8", errors="replace").read().replace("\r\n", "\n")
+except OSError:
+    sys.exit(1)
+lines = text.splitlines(True)
+out, sec, found, inserted = [], None, False, False
+i = 0
+while i < len(lines):
+    raw = lines[i]
+    s = raw.strip()
+    if s.startswith("[") and s.endswith("]"):
+        if sec == section and not found:
+            out.append("%s=%s\n" % (key, value))
+            found, inserted = True, True
+        sec = s[1:-1].split("#", 1)[0].strip()
+        out.append(raw)
+        i += 1
+        continue
+    if sec == section and "=" in s and not s.startswith("#") and not s.startswith(";"):
+        k = s.split("=", 1)[0].strip()
+        if k == key:
+            nl = "\n" if raw.endswith("\n") else ""
+            indent = raw[: len(raw) - len(raw.lstrip())]
+            out.append("%s%s=%s%s" % (indent, key, value, nl))
+            found = True
+            i += 1
+            continue
+    out.append(raw)
+    i += 1
+if sec == section and not found:
+    out.append("%s=%s\n" % (key, value))
+    found = True
+if not found:
+    if out and not out[-1].endswith("\n"):
+        out.append("\n")
+    out.append("[%s]\n%s=%s\n" % (section, key, value))
+open(path, "w", encoding="utf-8", newline="\n").write("".join(out))
+PY
+}
+
+patch_server_log_paths() {
+  local dest=$1
+  [[ -f "$dest" ]] || return 1
+  local tmp
+  tmp="$(mktemp)"
+  as_root cat "$dest" >"$tmp"
+  ini_set "$tmp" "log" "dir" "${SERVER_LOG}"
+  ini_set "$tmp" "ffmpeg" "log" "${SERVER_LOG}/ffmpeg.log"
+  as_root cp -f "$tmp" "$dest"
+  rm -f "$tmp"
+  log "已写入 ${dest} log.dir=${SERVER_LOG} ffmpeg.log=${SERVER_LOG}/ffmpeg.log"
 }
 
 install_file() {
@@ -230,6 +289,7 @@ publish_server() {
     install_file "$src_pem" "${BIN}/default.pem" "644"
   fi
   install_cfg_if_absent "$src_ini" "$SERVER_INI"
+  patch_server_log_paths "$SERVER_INI"
   log "已发布 ${SERVER_BIN}"
 }
 
@@ -334,6 +394,10 @@ unit_is_active() {
 do_start() {
   local name=$1
   [[ -x "${BIN}/${name}" ]] || die "缺少可执行文件 ${BIN}/${name}，请先 ./control.sh ${name} update"
+  if [[ "$name" == "$SERVER_UNIT" && -f "$SERVER_INI" ]]; then
+    ensure_dirs
+    patch_server_log_paths "$SERVER_INI"
+  fi
   install_units
   sysctl_run reset-failed "${name}.service" 2>/dev/null || true
   sysctl_run enable "${name}.service" >/dev/null

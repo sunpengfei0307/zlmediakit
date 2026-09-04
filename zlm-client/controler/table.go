@@ -12,6 +12,8 @@ import (
 
 const defaultPageSize = 20
 
+var pageSizeOptions = []int{20, 50, 100}
+
 type listQuery struct {
 	Q    string
 	Sort string
@@ -26,14 +28,22 @@ type pagerLink struct {
 	On  bool
 }
 
+type pagerSizeOpt struct {
+	N  int
+	On bool
+}
+
 type pagerView struct {
-	Page    int
-	Pages   int
-	Total   int
-	Size    int
-	PrevURL string
-	NextURL string
-	Links   []pagerLink
+	Page     int
+	Pages    int
+	Total    int
+	Size     int
+	Path     string
+	Query    url.Values
+	PrevURL  string
+	NextURL  string
+	Links    []pagerLink
+	SizeOpts []pagerSizeOpt
 }
 
 func parseListQuery(c *gin.Context, defaultSort, defaultDir string) listQuery {
@@ -105,6 +115,25 @@ func sortHeaderURL(path string, q url.Values, key, curSort, curDir any) string {
 	return withQuery(path, q, "sort", k, "dir", next, "page", "1")
 }
 
+func buildSizeOpts(size int) []pagerSizeOpt {
+	seen := map[int]struct{}{}
+	opts := make([]int, 0, len(pageSizeOptions)+1)
+	for _, n := range pageSizeOptions {
+		opts = append(opts, n)
+		seen[n] = struct{}{}
+	}
+	if size > 0 {
+		if _, ok := seen[size]; !ok {
+			opts = append([]int{size}, opts...)
+		}
+	}
+	out := make([]pagerSizeOpt, 0, len(opts))
+	for _, n := range opts {
+		out = append(out, pagerSizeOpt{N: n, On: n == size})
+	}
+	return out
+}
+
 func buildPager(path string, q url.Values, total, page, size int) pagerView {
 	if size <= 0 {
 		size = defaultPageSize
@@ -122,7 +151,10 @@ func buildPager(path string, q url.Values, total, page, size int) pagerView {
 	if page > pages {
 		page = pages
 	}
-	view := pagerView{Page: page, Pages: pages, Total: total, Size: size}
+	view := pagerView{
+		Page: page, Pages: pages, Total: total, Size: size,
+		Path: path, Query: cloneValues(q), SizeOpts: buildSizeOpts(size),
+	}
 	if pages <= 1 {
 		return view
 	}

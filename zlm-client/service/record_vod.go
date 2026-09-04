@@ -215,6 +215,7 @@ func normalizeRecordVODResult(action string, result map[string]any) map[string]a
 		"deleteRecordFile": "已删除录像文件",
 		"startRecord":     "已开始录制",
 		"stopRecord":      "已停止录制",
+		"setRecordPref":   "已保存切片时长",
 		"setRecordSpeed":  "录像播放速度已设置",
 		"seekRecordStamp": "录像播放位置已调整",
 		"pauseStream":     "已暂停 ZLM 代理流",
@@ -230,6 +231,10 @@ func normalizeRecordVODResult(action string, result map[string]any) map[string]a
 		data, _ := result["data"].(map[string]any)
 		if strings.TrimSpace(asString(data["path"])) == "" {
 			return recordVODFailure("ZLM 成功响应缺少 data.path")
+		}
+	case "setRecordPref":
+		if asFloat(result["code"]) != 0 {
+			return recordVODFailure(firstNonEmpty(asString(result["msg"]), "保存切片时长失败"))
 		}
 	case "setRecordSpeed", "seekRecordStamp", "pauseStream", "seekStream", "setStreamSpeed":
 		value, ok := result["result"]
@@ -332,6 +337,12 @@ func (h *Hub) RecordVODOperation(nodeID, user, action string, q url.Values) map[
 				vals.Set("forward_ms", strconv.FormatInt(forward, 10))
 			}
 		}
+	case "setRecordPref":
+		var maxSecond int64
+		maxSecond, err = parseRecordInt(q.Get("max_second"), "max_second", 1, 31536000, 600)
+		if err == nil {
+			vals = url.Values{"max_second": {strconv.FormatInt(maxSecond, 10)}}
+		}
 	case "startRecord":
 		vals, err = validateRecordIdentity(q, false)
 		if err == nil {
@@ -408,7 +419,11 @@ func (h *Hub) RecordVODOperation(nodeID, user, action string, q url.Values) map[
 	}
 
 	var result map[string]any
-	if action == "startRecord" {
+	if action == "setRecordPref" {
+		result, err = h.zlm.callPOST(n, "setServerConfig", url.Values{
+			"protocol.mp4_max_second": {vals.Get("max_second")},
+		})
+	} else if action == "startRecord" {
 		if vals.Get("type") == "1" {
 			result, err = h.zlm.callPOST(n, "setServerConfig", url.Values{
 				"protocol.mp4_max_second": {vals.Get("max_second")},

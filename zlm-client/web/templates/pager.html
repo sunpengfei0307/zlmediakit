@@ -1,14 +1,42 @@
 {{define "table-pager"}}
 {{if .}}
 <nav class="table-pager" aria-label="分页">
-  <span class="muted">共 {{.Total}} 条{{if gt .Pages 1}} · 第 {{.Page}}/{{.Pages}} 页{{end}}</span>
+  {{range $k, $vs := .Query}}
+    {{if and (ne $k "page") (ne $k "size")}}
+      {{range $vs}}<input type="hidden" class="pager-q" name="{{$k}}" value="{{.}}">{{end}}
+    {{end}}
+  {{end}}
+  <span class="muted pager-summary">共 {{.Total}} 条{{if gt .Pages 0}} · 第 {{.Page}}/{{.Pages}} 页{{end}}</span>
   {{if gt .Pages 1}}
   {{if .PrevURL}}<a class="ghost" href="{{.PrevURL}}" hx-get="{{.PrevURL}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">上一页</a>{{end}}
   {{range .Links}}
   <a class="ghost{{if .On}} is-on{{end}}" href="{{.URL}}" hx-get="{{.URL}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">{{.N}}</a>
   {{end}}
   {{if .NextURL}}<a class="ghost" href="{{.NextURL}}" hx-get="{{.NextURL}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">下一页</a>{{end}}
+  <form class="pager-jump" method="get" action="{{.Path}}"
+    hx-get="{{.Path}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML">
+    {{range $k, $vs := .Query}}
+      {{if ne $k "page"}}
+        {{range $vs}}<input type="hidden" name="{{$k}}" value="{{.}}">{{end}}
+      {{end}}
+    {{end}}
+    <label class="pager-label" for="pagerJumpPage">跳至</label>
+    <input id="pagerJumpPage" type="number" name="page" min="1" max="{{.Pages}}" value="{{.Page}}" required inputmode="numeric" aria-label="跳转到指定页">
+    <span class="pager-label">页</span>
+    <button class="ghost" type="submit">跳转</button>
+  </form>
   {{end}}
+  <label class="pager-size-wrap">
+    <span class="pager-label">每页</span>
+    <select name="size" aria-label="每页条数"
+      hx-get="{{.Path}}" hx-target="#content" hx-push-url="true" hx-swap="innerHTML"
+      hx-include=".table-pager .pager-q" hx-vals='{"page":"1"}'>
+      {{range .SizeOpts}}
+      <option value="{{.N}}" {{if .On}}selected{{end}}>{{.N}}</option>
+      {{end}}
+    </select>
+    <span class="pager-label">条</span>
+  </label>
 </nav>
 {{end}}
 {{end}}

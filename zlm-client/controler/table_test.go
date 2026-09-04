@@ -72,6 +72,16 @@ func TestBuildPagerAndWithQuery(t *testing.T) {
 	if pager.Page != 2 || pager.Pages != 3 || pager.Total != 45 || pager.PrevURL == "" || pager.NextURL == "" {
 		t.Fatalf("pager: %+v", pager)
 	}
+	if pager.Path != "/files" || pager.Query.Get("app") != "live" || len(pager.SizeOpts) != 3 {
+		t.Fatalf("pager extras: path=%s query=%v opts=%+v", pager.Path, pager.Query, pager.SizeOpts)
+	}
+	if !pager.SizeOpts[0].On || pager.SizeOpts[0].N != 20 {
+		t.Fatalf("default size opt: %+v", pager.SizeOpts)
+	}
+	wide := buildPager("/files", q, 1843, 14, 50)
+	if wide.Pages != 37 || wide.Size != 50 || !wide.SizeOpts[1].On {
+		t.Fatalf("size=50 pager: %+v", wide)
+	}
 	sortURL := sortHeaderURL("/files", q, "mtime", "mtime", "desc")
 	for _, part := range []string{"sort=mtime", "dir=asc", "page=1"} {
 		if !strings.Contains(sortURL, part) {

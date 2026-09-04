@@ -242,7 +242,7 @@ func TestEventsTemplateHasFilter(t *testing.T) {
 	buf.Reset()
 	data["ObsTab"] = "logs"
 	data["Lv"] = "DIWE"
-	data["Logs"] = map[string]any{"files": []map[string]any{}, "lines": []string{}}
+	data["Logs"] = map[string]any{"files": []map[string]any{}, "lines": []string{}, "source": "client"}
 	if err := tpl.ExecuteTemplate(&buf, "content-logs", data); err != nil {
 		t.Fatal(err)
 	}
@@ -252,6 +252,9 @@ func TestEventsTemplateHasFilter(t *testing.T) {
 	}
 	if strings.Count(out, `class="ops-tab is-on"`) != 1 {
 		t.Fatalf("exactly one observe tab should be on:\n%s", out)
+	}
+	if !strings.Contains(out, `id="logSource"`) || !strings.Contains(out, `id="logFile"`) {
+		t.Fatal("logs toolbar should switch client/server files")
 	}
 }
 
@@ -391,8 +394,12 @@ func TestRecordStartStopButtonsSitOnRecordBar(t *testing.T) {
 	if bar < 0 || start < 0 || stop < 0 {
 		t.Fatal("record bar or start/stop buttons missing")
 	}
-	if start < bar || stop < bar {
-		t.Fatal("start/stop recording buttons must sit on the record bar row")
+	pref := strings.Index(out, `hx-post="/files/record/pref"`)
+	if start < bar || stop < bar || pref < bar {
+		t.Fatal("start/stop/pref recording controls must sit on the record bar row")
+	}
+	if !strings.Contains(out, `id="recPrefForm"`) || !strings.Contains(out, `hx-trigger="change, keyup changed delay:400ms"`) {
+		t.Fatal("segment minutes must persist on change via recPrefForm")
 	}
 	topbarEnd := strings.Index(out, `id="recRecordBar"`)
 	if strings.Contains(out[:topbarEnd], `hx-post="/files/record/start"`) {
@@ -454,7 +461,7 @@ func TestRecordVODActionOnlyAllowsNamedOperations(t *testing.T) {
 }
 
 func TestFilesRecordActionOnlyAllowsStartAndStop(t *testing.T) {
-	for op, want := range map[string]string{"start": "startRecord", "stop": "stopRecord"} {
+	for op, want := range map[string]string{"start": "startRecord", "stop": "stopRecord", "pref": "setRecordPref"} {
 		if got, ok := filesRecordAction(op); !ok || got != want {
 			t.Fatalf("op=%q got=%q ok=%v", op, got, ok)
 		}
@@ -463,6 +470,19 @@ func TestFilesRecordActionOnlyAllowsStartAndStop(t *testing.T) {
 		if _, ok := filesRecordAction(op); ok {
 			t.Fatalf("op %q unexpectedly allowed", op)
 		}
+	}
+}
+
+func TestRecordPrefMaxSecondKeepsSegmentMinutes(t *testing.T) {
+	if got := recordPrefMaxSecond("segment", 59); got != 3540 {
+		t.Fatalf("59 minutes -> %d", got)
+	}
+	if got := recordPrefMaxSecond("single", 59); got != 31536000 {
+		t.Fatalf("single -> %d", got)
+	}
+	mode, min := recordPrefFromSeconds(3540)
+	if mode != "segment" || min != 59 {
+		t.Fatalf("roundtrip 3540 -> %s %d", mode, min)
 	}
 }
 
@@ -475,6 +495,7 @@ func TestEveryFilesWriteFormHasOwnConfirmation(t *testing.T) {
 	noConfirm := []string{
 		"/files/record/start",
 		"/files/record/stop",
+		"/files/record/pref",
 		"/files/vod/loadMP4File",
 		"/files/vod/startRecordTask",
 		"/files/vod/setRecordSpeed",
@@ -538,10 +559,18 @@ func TestSessionsAndFilesSupportCurrentPageBatchSelect(t *testing.T) {
 		`hx-post="/ui/sessions/kick-selected"`, "踢出选中", `class="batch-bar"`,
 		`{{template "table-pager" .Pager}}`, "关联流", "app-row", ".Groups",
 		`sortURL "/sessions" .ListQuery "media"`,
+		`hx-post="/auth/ip/add"`, "黑名单", "白名单", `class="peer-cell"`,
+		`class="act-row peer-acl"`,
+		`name="allow_push" value="1"`, `name="allow_play" value="1"`,
+		"全部推拉连接", "默认允许该 IP 的推流和拉流",
+		`index . "ip_black"`, `index . "ip_white"`, `disabled title="已在黑名单"`,
 	} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("sessions missing %q", want)
 		}
+	}
+	if strings.Contains(s, `index . "role")) "推流"}}1`) || strings.Contains(s, `index . "role")) "拉流"}}1`) {
+		t.Fatal("one-click IP add must cover both push and play, not only the current role")
 	}
 	files, err := os.ReadFile("../web/templates/files.html")
 	if err != nil {
@@ -577,6 +606,67 @@ func TestSessionsAndFilesSupportCurrentPageBatchSelect(t *testing.T) {
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("app.js missing %q", want)
+		}
+	}
+}
+
+func TestStreamIPAddDirsCoversBothFromLivePages(t *testing.T) {
+	push, play := streamIPAddDirs("sessions", false, true)
+	if !push || !play {
+		t.Fatalf("sessions blacklist/whitelist must cover both dirs, got push=%v play=%v", push, play)
+	}
+	push, play = streamIPAddDirs("streams", true, false)
+	if !push || !play {
+		t.Fatalf("streams blacklist/whitelist must cover both dirs, got push=%v play=%v", push, play)
+	}
+	push, play = streamIPAddDirs("auth", true, false)
+	if !push || play {
+		t.Fatalf("auth form must keep explicit dirs, got push=%v play=%v", push, play)
+	}
+}
+
+func TestTablePagerJumpAndPageSize(t *testing.T) {
+	raw, err := os.ReadFile("../web/templates/pager.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(raw)
+	for _, want := range []string{
+		`class="pager-jump"`, `id="pagerJumpPage"`, `name="page"`, "跳至", "跳转",
+		`class="pager-size-wrap"`, `name="size"`, "每页", "条",
+		`hx-vals='{"page":"1"}'`, `aria-label="跳转到指定页"`, `aria-label="每页条数"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("pager.html missing %q", want)
+		}
+	}
+	tpl, err := template.New("").Funcs(tmplFuncs()).ParseGlob("../web/templates/*.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := url.Values{"app": {"live"}, "proto": {"snap"}, "size": {"50"}}
+	var buf bytes.Buffer
+	if err := tpl.ExecuteTemplate(&buf, "table-pager", buildPager("/files", q, 1843, 14, 50)); err != nil {
+		t.Fatal(err)
+	}
+	html := buf.String()
+	for _, want := range []string{
+		"共 1843 条", "第 14/37 页", `value="14"`, `max="37"`, "跳转",
+		`name="size"`, `value="50" selected`, `value="20"`, `value="100"`,
+		`name="app"`, `value="live"`, `hx-get="/files"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("rendered pager missing %q in:\n%s", want, html)
+		}
+	}
+	css, err := os.ReadFile("../web/static/theme.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs := string(css)
+	for _, want := range []string{".pager-jump", ".pager-size-wrap", ".pager-label"} {
+		if !strings.Contains(cs, want) {
+			t.Fatalf("theme.css missing %q", want)
 		}
 	}
 }
@@ -761,7 +851,7 @@ func TestFilesPreviewUsesDisplayedPublicHLSUrl(t *testing.T) {
 		"function isLiveHlsPreview(",
 		"function isImagePreview(",
 		"function showFileImage(",
-		"xhrSetup: (xhr) => { xhr.withCredentials = true; }",
+		"hlsXhrSetup(url, true)",
 		"displayedMediaUrl(m3u8)",
 		"credentials: 'omit'",
 		"/hls_init?",
@@ -847,10 +937,13 @@ func TestStreamDetailTemplateShowsMediaInfoErrorsLocally(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := string(raw)
-	for _, want := range []string{"media_error", "media_online", "media_info", "expand-summary", "expand-detail", `class="col-kick"`} {
+	for _, want := range []string{"media_error", "media_online", "media_info", "expand-summary", "expand-detail", `class="col-kick"`, `hx-post="/auth/ip/add"`, "黑名单", "白名单", `class="act-row peer-acl"`, `name="allow_push" value="1"`, `name="allow_play" value="1"`, "全部推拉连接", `index . "ip_black"`, `disabled title="已在黑名单"`} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stream detail missing %q", want)
 		}
+	}
+	if strings.Contains(out, `index . "_kind")) "推流"}}1`) || strings.Contains(out, `index . "_kind")) "拉流"}}1`) {
+		t.Fatal("stream one-click IP add must cover both push and play")
 	}
 }
 

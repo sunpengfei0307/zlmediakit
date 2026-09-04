@@ -6,15 +6,15 @@ DefaultDependencies=yes
 [Service]
 Type=simple
 WorkingDirectory=@BIN@
-ExecStart=@BIN@/zlm-server -c @CFG@/zlm-server.ini -t 16
+ExecStart=@BIN@/zlm-server -c @CFG@/zlm-server.ini -t 16 --log-dir @DATA@/log/zlm-server
 Restart=always
 RestartSec=2
 TimeoutStartSec=15
 TimeoutStopSec=15
 KillMode=control-group
 KillSignal=SIGTERM
-StandardOutput=append:@DATA@/log/zlm-server.out
-StandardError=append:@DATA@/log/zlm-server.out
+StandardOutput=append:@DATA@/log/zlm-server/zlm-server.out
+StandardError=append:@DATA@/log/zlm-server/zlm-server.out
 SyslogIdentifier=zlm-server
 LimitNOFILE=65535
 @USER_LINE@

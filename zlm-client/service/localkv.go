@@ -12,6 +12,8 @@ import (
 const (
 	kvBucketMetrics = "metrics"
 	kvBucketAudit   = "audit"
+	kvBucketVOD     = "vod"
+	kvBucketAuth    = "auth"
 )
 
 // LocalKV is a process-local, disk-backed dictionary. One file, mmap, no extra daemon.
@@ -32,7 +34,7 @@ func OpenLocalKV(path string) (*LocalKV, error) {
 		return nil, err
 	}
 	err = db.Update(func(tx *bbolt.Tx) error {
-		for _, name := range []string{kvBucketMetrics, kvBucketAudit} {
+		for _, name := range []string{kvBucketMetrics, kvBucketAudit, kvBucketVOD, kvBucketAuth} {
 			if _, err := tx.CreateBucketIfNotExists([]byte(name)); err != nil {
 				return err
 			}

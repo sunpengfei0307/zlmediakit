@@ -9,10 +9,13 @@
     (function () {
       try {
         var t = localStorage.getItem('zlm-theme') === 'light' ? 'light' : 'dark';
+        var n = localStorage.getItem('zlm-nav') === 'sidebar' ? 'sidebar' : 'header';
         document.documentElement.setAttribute('data-theme', t);
+        document.documentElement.setAttribute('data-nav', n);
         document.documentElement.style.colorScheme = t;
       } catch (e) {
         document.documentElement.setAttribute('data-theme', 'dark');
+        document.documentElement.setAttribute('data-nav', 'header');
       }
     })();
   </script>
@@ -36,7 +39,7 @@
       }
     };
   </script>
-  <link rel="stylesheet" href="/static/theme.css?v=ops-layout-48" />
+  <link rel="stylesheet" href="/static/theme.css?v=ops-layout-64" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator.min.css" />
   <script src="/static/mpegts.min.js"></script>
   <script src="/static/hls.min.js"></script>
@@ -48,18 +51,56 @@
 <body data-page="{{.Active}}" data-node="{{.NodeID}}" data-https="{{.HTTPSPort}}" data-http-port="{{.HTTPPort}}" data-dash="{{if .EnableDash}}1{{else}}0{{end}}">
   <header>
     <div class="logo">ZLM <b>运维后台</b></div>
+    <svg class="nav-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+      <symbol id="nav-overview" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>
+      </symbol>
+      <symbol id="nav-streams" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/>
+      </symbol>
+      <symbol id="nav-sessions" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" x2="16" y1="12" y2="12"/>
+      </symbol>
+      <symbol id="nav-sources" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/>
+      </symbol>
+      <symbol id="nav-protocols" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 12.5-8.58 3.91a2 2 0 0 1-1.66 0L2 12.5"/><path d="m22 17.5-8.58 3.91a2 2 0 0 1-1.66 0L2 17.5"/>
+      </symbol>
+      <symbol id="nav-files" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3" fill="currentColor"/>
+      </symbol>
+      <symbol id="nav-config" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/>
+      </symbol>
+      <symbol id="nav-push" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.4"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.4"/><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/>
+      </symbol>
+      <symbol id="nav-events" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-2H10v2a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v3h4"/>
+      </symbol>
+      <symbol id="nav-auth" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </symbol>
+    </svg>
     <nav class="nav-track">
-      <a href="/" hx-get="/" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "overview"}}active{{end}}">系统概览</a>
-      <a href="/streams" hx-get="/streams" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "streams"}}active{{end}}">直播管理</a>
-      <a href="/sessions" hx-get="/sessions" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "sessions"}}active{{end}}">连接管理</a>
-      <a href="/sources" hx-get="/sources" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "sources"}}active{{end}}">信号转发</a>
-      <a href="/protocols" hx-get="/protocols" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "protocols"}}active{{end}}">协议管理</a>
-      <a href="/files" hx-get="/files" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "files"}}active{{end}}">录制管理</a>
-      <a href="/config" hx-get="/config" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "config"}}active{{end}}">配置管理</a>
-      <a href="/push" hx-get="/push" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "push"}}active{{end}}">推流管理（RTC）</a>
-      <a href="/events" hx-get="/events" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if or (eq .Active "events") (eq .Active "logs")}}active{{end}}">事件 / 日志</a>
+      <a href="/" hx-get="/" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "overview"}}active{{end}}"><svg class="nav-ico" aria-hidden="true"><use href="#nav-overview"/></svg>系统概览</a>
+      <a href="/streams" hx-get="/streams" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "streams"}}active{{end}}"><svg class="nav-ico" aria-hidden="true"><use href="#nav-streams"/></svg>直播管理</a>
+      <a href="/sessions" hx-get="/sessions" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "sessions"}}active{{end}}"><svg class="nav-ico" aria-hidden="true"><use href="#nav-sessions"/></svg>连接管理</a>
+      <a href="/sources" hx-get="/sources" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "sources"}}active{{end}}"><svg class="nav-ico" aria-hidden="true"><use href="#nav-sources"/></svg>信号转发</a>
+      <a href="/protocols" hx-get="/protocols" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "protocols"}}active{{end}}"><svg class="nav-ico" aria-hidden="true"><use href="#nav-protocols"/></svg>协议管理</a>
+      <a href="/files" hx-get="/files" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "files"}}active{{end}}"><svg class="nav-ico" aria-hidden="true"><use href="#nav-files"/></svg>录制管理</a>      
+      <a href="/push" hx-get="/push" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "push"}}active{{end}}"><svg class="nav-ico" aria-hidden="true"><use href="#nav-push"/></svg>推流管理</a>
+      <a href="/auth" hx-get="/auth" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "auth"}}active{{end}}"><svg class="nav-ico" aria-hidden="true"><use href="#nav-auth"/></svg>鉴权管理</a>
+      <a href="/config" hx-get="/config" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if eq .Active "config"}}active{{end}}"><svg class="nav-ico" aria-hidden="true"><use href="#nav-config"/></svg>配置管理</a>
+      <a href="/events" hx-get="/events" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" class="{{if or (eq .Active "events") (eq .Active "logs")}}active{{end}}"><svg class="nav-ico" aria-hidden="true"><use href="#nav-events"/></svg>事件日志</a>
     </nav>
     <div class="grow"></div>
+    <div class="header-tools">
+    <div class="theme-switch nav-switch" role="group" aria-label="导航布局">
+      <button type="button" data-nav-set="header" title="顶栏菜单">顶栏</button>
+      <button type="button" data-nav-set="sidebar" title="侧栏菜单">侧栏</button>
+    </div>
     <div class="theme-switch" role="group" aria-label="主题">
       <button type="button" data-theme-set="light" title="亮色主题">亮色</button>
       <button type="button" data-theme-set="dark" title="暗色主题">暗色</button>
@@ -73,8 +114,10 @@
       </div>
     </details>
     {{end}}
+    </div>
   </header>
   <main>
+    <nav class="tagsbar" id="pageTabs" aria-label="已打开的页面"></nav>
     <div id="content" class="page-{{.Active}}" hx-history-elt>
       {{if eq .Active "overview"}}{{template "content-overview" .}}{{end}}
       {{if eq .Active "streams"}}{{template "content-streams" .}}{{end}}
@@ -84,6 +127,7 @@
       {{if eq .Active "files"}}{{template "content-files" .}}{{end}}
       {{if eq .Active "config"}}{{template "content-config" .}}{{end}}
       {{if eq .Active "push"}}{{template "content-push" .}}{{end}}
+      {{if eq .Active "auth"}}{{template "content-auth" .}}{{end}}
       {{if eq .Active "events"}}{{template "content-events" .}}{{end}}
       {{if eq .Active "logs"}}{{template "content-logs" .}}{{end}}
     </div>
@@ -131,7 +175,7 @@
     </div>
   </div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/static/app.js?v=ops-layout-48"></script>
+  <script src="/static/app.js?v=ops-layout-64"></script>
 </body>
 </html>
 {{end}}

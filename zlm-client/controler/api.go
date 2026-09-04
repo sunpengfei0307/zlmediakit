@@ -93,12 +93,12 @@ func (API) Logs(c *gin.Context) {
 	if n > 3000 {
 		n = 3000
 	}
-	c.JSON(http.StatusOK, service.H.Logs(c.Query("node"), c.Query("file"), c.Query("lv"), n))
+	c.JSON(http.StatusOK, service.H.Logs(c.Query("node"), c.Query("file"), c.Query("source"), c.Query("lv"), n))
 }
 
 func (API) LogStream(c *gin.Context) {
 	offset, _ := strconv.ParseInt(c.Query("offset"), 10, 64)
-	if err := service.H.LogStream(c.Request.Context(), c.Writer, c.Query("node"), c.Query("file"), c.Query("lv"), offset); err != nil {
+	if err := service.H.LogStream(c.Request.Context(), c.Writer, c.Query("node"), c.Query("file"), c.Query("source"), c.Query("lv"), offset); err != nil {
 		if !c.Writer.Written() {
 			c.JSON(http.StatusBadGateway, gin.H{"code": -1, "msg": err.Error()})
 		}

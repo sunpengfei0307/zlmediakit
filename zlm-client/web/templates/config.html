@@ -61,6 +61,7 @@
         <label class="cfg-field cfg-span-2 {{if index $.OpsErr "log_dir"}}cfg-bad{{end}}">
           <span>日志目录</span>
           <input id="monLog" name="log_dir" value="{{index $.Ops "log_dir"}}" />
+          <span class="muted">运维台 / zlm-client 写在此目录；zlm-server 与内部 ffmpeg 写在此目录下的 zlm-server/</span>
           {{if index $.OpsErr "log_dir"}}<span class="cfg-err">{{index $.OpsErr "log_dir"}}</span>{{end}}
         </label>
       </div>
@@ -137,7 +138,7 @@
     <header class="cfg-zone-head">
       <div>
         <h2 id="adv-ops-title">高级操作</h2>
-        <p>服务重启、受限目录删除和模板化广播；全部需要二次确认并写入审计。不开放任意文件/二进制下载（downloadFile / downloadBin）。</p>
+        <p>服务重启和受限目录删除；全部需要二次确认并写入审计。不开放任意文件/二进制下载（downloadFile / downloadBin）。</p>
       </div>
     </header>
     <div class="cfg-split cfg-cols-2">
@@ -151,20 +152,20 @@
       </article>
       <article class="cfg-card">
         <div class="cfg-block-title">删除受限录像目录</div>
-        <p class="cfg-block-hint">只允许删除默认录像根下某一天（YYYY-MM-DD）的目录或其中单个 mp4，不能指定 customized_path。</p>
+        <p class="cfg-block-hint">按录制管理实际目录删除：mp4/record/{app}/{stream}。日期留空则删除该流全部录像（含子目录）；填写 YYYY-MM-DD 只删当天；可选再填单个 mp4 文件名。</p>
         <form class="cfg-fields cfg-cols-2" method="post" action="/config/advanced/delete-record-dir" hx-post="/config/advanced/delete-record-dir" hx-target="#content" hx-swap="innerHTML"
-          hx-confirm="确认删除该日期的受限录像目录？此操作不可恢复。">
+          hx-confirm="确认删除该流的录像目录？此操作不可恢复。">
           <label class="cfg-field" for="adv-record-vhost"><span>vhost</span>
             <input id="adv-record-vhost" name="vhost" value="__defaultVhost__" />
           </label>
           <label class="cfg-field" for="adv-record-app"><span>app</span>
-            <input id="adv-record-app" name="app" required />
+            <input id="adv-record-app" name="app" required placeholder="live" />
           </label>
           <label class="cfg-field" for="adv-record-stream"><span>stream</span>
-            <input id="adv-record-stream" name="stream" required />
+            <input id="adv-record-stream" name="stream" required placeholder="ls_zlm_h264_1080p" />
           </label>
-          <label class="cfg-field" for="adv-record-period"><span>日期 period</span>
-            <input id="adv-record-period" name="period" placeholder="YYYY-MM-DD" required />
+          <label class="cfg-field" for="adv-record-period"><span>日期 period（可空）</span>
+            <input id="adv-record-period" name="period" placeholder="YYYY-MM-DD，留空删整个流目录" />
           </label>
           <label class="cfg-field cfg-span-2" for="adv-record-name"><span>可选文件 name</span>
             <input id="adv-record-name" name="name" placeholder="clip.mp4" />
@@ -176,63 +177,23 @@
       </article>
       <article class="cfg-card">
         <div class="cfg-block-title">删除受限截图目录</div>
-        <p class="cfg-block-hint">只删除 ZLM snapRoot 下该流的 jpg；填写文件名则只删单个文件，留空则删该流截图目录。</p>
+        <p class="cfg-block-hint">按录制管理实际目录删除：snap/{stream}。留空文件名则删除该流全部截图；填写则只删单个 jpg。</p>
         <form class="cfg-fields cfg-cols-2" method="post" action="/config/advanced/delete-snap-dir" hx-post="/config/advanced/delete-snap-dir" hx-target="#content" hx-swap="innerHTML"
-          hx-confirm="确认删除受限截图目录或文件？此操作不可恢复。">
+          hx-confirm="确认删除该流的截图目录或文件？此操作不可恢复。">
           <label class="cfg-field" for="adv-snap-vhost"><span>vhost</span>
             <input id="adv-snap-vhost" name="vhost" value="__defaultVhost__" />
           </label>
           <label class="cfg-field" for="adv-snap-app"><span>app</span>
-            <input id="adv-snap-app" name="app" required />
+            <input id="adv-snap-app" name="app" required placeholder="live" />
           </label>
           <label class="cfg-field" for="adv-snap-stream"><span>stream</span>
-            <input id="adv-snap-stream" name="stream" required />
+            <input id="adv-snap-stream" name="stream" required placeholder="ls_zlm_h264_1080p" />
           </label>
           <label class="cfg-field" for="adv-snap-file"><span>可选文件 file</span>
-            <input id="adv-snap-file" name="file" placeholder="latest.jpg" />
+            <input id="adv-snap-file" name="file" placeholder="latest.jpg，留空删整个流目录" />
           </label>
           <div class="cfg-field cfg-span-2">
             <button class="ghost ghost-danger" type="submit">删除截图目录</button>
-          </div>
-        </form>
-      </article>
-      <article class="cfg-card">
-        <div class="cfg-block-title">模板化广播</div>
-        <p class="cfg-block-hint">向指定流的播放端发送预设文本。notice 仅允许 1-200 字纯文本，禁止 HTML。</p>
-        <form class="cfg-fields cfg-cols-2" method="post" action="/config/advanced/broadcast" hx-post="/config/advanced/broadcast" hx-target="#content" hx-swap="innerHTML"
-          hx-confirm="确认向该流发送模板广播？">
-          <label class="cfg-field" for="adv-broadcast-schema"><span>schema</span>
-            <select id="adv-broadcast-schema" name="schema">
-              <option value="rtmp">rtmp</option>
-              <option value="rtsp">rtsp</option>
-              <option value="fmp4">fmp4</option>
-              <option value="ts">ts</option>
-              <option value="hls">hls</option>
-              <option value="hls.fmp4">hls.fmp4</option>
-              <option value="rtc">rtc</option>
-            </select>
-          </label>
-          <label class="cfg-field" for="adv-broadcast-vhost"><span>vhost</span>
-            <input id="adv-broadcast-vhost" name="vhost" value="__defaultVhost__" />
-          </label>
-          <label class="cfg-field" for="adv-broadcast-app"><span>app</span>
-            <input id="adv-broadcast-app" name="app" required />
-          </label>
-          <label class="cfg-field" for="adv-broadcast-stream"><span>stream</span>
-            <input id="adv-broadcast-stream" name="stream" required />
-          </label>
-          <label class="cfg-field" for="adv-broadcast-template"><span>模板 template</span>
-            <select id="adv-broadcast-template" name="template">
-              <option value="maintenance">维护通知</option>
-              <option value="offline">即将下线</option>
-              <option value="notice">自定义纯文本</option>
-            </select>
-          </label>
-          <label class="cfg-field cfg-span-2" for="adv-broadcast-msg"><span>notice 文本</span>
-            <input id="adv-broadcast-msg" name="msg" maxlength="200" placeholder="仅 template=notice 时使用" />
-          </label>
-          <div class="cfg-field cfg-span-2">
-            <button class="ghost" type="submit">发送广播</button>
           </div>
         </form>
       </article>

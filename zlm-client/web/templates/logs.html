@@ -4,10 +4,17 @@
 
 {{define "content-logs-inner"}}
 <div class="toolbar">
+  {{$src := asStr (index .Logs "source")}}{{if not $src}}{{$src = "client"}}{{end}}
+  {{$cur := .File}}{{if not $cur}}{{$cur = asStr (index .Logs "file")}}{{end}}
+  <select id="logSource" name="source" title="日志来源">
+    <option value="client" {{if eq $src "client"}}selected{{end}}>zlm-client</option>
+    <option value="server" {{if eq $src "server"}}selected{{end}}>zlm-server</option>
+  </select>
   <select id="logFile" name="file">
-    {{$cur := .File}}{{if not $cur}}{{$cur = asStr (index .Logs "file")}}{{end}}
     {{range index .Logs "files"}}
-    <option value="{{.Name}}" {{if eq $cur .Name}}selected{{end}}>{{.Name}} ({{fmtBytes .Size}})</option>
+    {{if eq .Source $src}}
+    <option value="{{.ID}}" {{if or (eq $cur .ID) (eq $cur .Name)}}selected{{end}}>{{.Name}} ({{fmtBytes .Size}})</option>
+    {{end}}
     {{else}}
     <option value="">无日志文件</option>
     {{end}}
@@ -26,8 +33,9 @@
 <div class="muted" id="logMeta" style="margin:0 0 8px"
   data-offset="{{asStr (index .Logs "offset")}}"
   data-file="{{asStr (index .Logs "file")}}"
+  data-source="{{asStr (index .Logs "source")}}"
   data-dir="{{asStr (index .Logs "dir")}}">
-  {{asStr (index .Logs "dir")}} · {{asStr (index .Logs "file")}} · {{if index .Logs "size"}}{{fmtBytes (index .Logs "size")}}{{end}} {{asStr (index .Logs "msg")}}
+  {{if eq (asStr (index .Logs "source")) "server"}}zlm-server{{else}}zlm-client{{end}} · {{asStr (index .Logs "dir")}} · {{asStr (index .Logs "name")}}{{if not (index .Logs "name")}}{{asStr (index .Logs "file")}}{{end}} · {{if index .Logs "size"}}{{fmtBytes (index .Logs "size")}}{{end}} {{asStr (index .Logs "msg")}}
 </div>
 <pre class="log-console pretty-scroll" id="logText">{{range index .Logs "lines"}}<span class="lv-I">{{.}}</span>
 {{else}}暂无日志内容{{end}}</pre>

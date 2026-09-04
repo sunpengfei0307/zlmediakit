@@ -82,4 +82,13 @@ func TestCfgPlaceholder(t *testing.T) {
 	if CfgPlaceholder("hls.deleteDelaySec") != "有效范围 0-86400 秒" {
 		t.Fatal(CfgPlaceholder("hls.deleteDelaySec"))
 	}
+	if CfgPlaceholder("log.dir") != "绝对路径，改后需重启" {
+		t.Fatal(CfgPlaceholder("log.dir"))
+	}
+	if HasFatalCfgIssue(ValidateZLMConfig(map[string]string{"log.dir": "bin/log"})) == false {
+		t.Fatal("relative log.dir should be fatal")
+	}
+	if HasFatalCfgIssue(ValidateZLMConfig(map[string]string{"log.dir": "/data/zlm/log/zlm-server"})) {
+		t.Fatal("absolute log.dir should pass")
+	}
 }

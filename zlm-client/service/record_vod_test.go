@@ -402,6 +402,32 @@ func TestStartStopRecordUsePOSTAndPairedAudit(t *testing.T) {
 	}
 }
 
+func TestSetRecordPrefWritesMp4MaxSecondWithoutStarting(t *testing.T) {
+	var requests []string
+	var last url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		requests = append(requests, r.URL.Path)
+		last = r.PostForm
+		_, _ = io.WriteString(w, `{"code":0,"changed":1}`)
+	}))
+	defer srv.Close()
+	withTestNode(t, config.Node{ID: "node-1", API: srv.URL})
+	h := &Hub{zlm: &zlmClient{http: srv.Client()}, audit: &recordingAudit{}}
+	got := h.RecordVODOperation("node-1", "operator", "setRecordPref", url.Values{
+		"max_second": {"3540"},
+	})
+	if asFloat(got["code"]) != 0 {
+		t.Fatalf("pref=%+v", got)
+	}
+	if len(requests) != 1 || requests[0] != "/index/api/setServerConfig" {
+		t.Fatalf("requests=%v", requests)
+	}
+	if last.Get("protocol.mp4_max_second") != "3540" {
+		t.Fatalf("form=%v", last)
+	}
+}
+
 func TestStartStopRecordAuditPrewriteFailurePreventsZLM(t *testing.T) {
 	for _, action := range []string{"startRecord", "stopRecord"} {
 		t.Run(action, func(t *testing.T) {
@@ -496,6 +522,61 @@ func TestAttachVODMarksUsesRegistryAndOrigin(t *testing.T) {
 	}
 	if !got[2].VodLoaded || got[2].VodStream != "from-origin" || !strings.Contains(got[2].PlayURL, "from-origin.live.flv") {
 		t.Fatalf("origin mark: %+v", got[2])
+	}
+}
+
+func TestVODLoadRegistrySurvivesClientRestart(t *testing.T) {
+	kv, err := OpenLocalKV(filepath.Join(t.TempDir(), "zlm-admin.kv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer kv.Close()
+	h1 := &Hub{kv: kv}
+	h1.rememberVODLoad("node-1", "mp4/record/live/cam/2026-09-04/a.mp4", "__defaultVhost__", "vod", "a")
+	h2 := &Hub{kv: kv}
+	h2.restoreVODLoads()
+	load, ok := h2.lookupVODLoad("node-1", "mp4/record/live/cam/2026-09-04/a.mp4")
+	if !ok || load.App != "vod" || load.Stream != "a" {
+		t.Fatalf("exact path after restart: ok=%v load=%+v", ok, load)
+	}
+	if _, ok := h2.lookupVODLoad("node-1", "record/live/cam/2026-09-04/a.mp4"); !ok {
+		t.Fatal("relative path variant must still find the persisted VOD load")
+	}
+	h2.forgetVODLoad("node-1", "mp4/record/live/cam/2026-09-04/a.mp4")
+	h3 := &Hub{kv: kv}
+	h3.restoreVODLoads()
+	if _, ok := h3.lookupVODLoad("node-1", "mp4/record/live/cam/2026-09-04/a.mp4"); ok {
+		t.Fatal("forget must drop persisted VOD load")
+	}
+}
+
+func TestAttachVODMarksReloadsMissingStreamAfterRestart(t *testing.T) {
+	root := t.TempDir()
+	rel := "record/live/cam/a.mp4"
+	abs := filepath.Join(root, rel)
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(abs, []byte("mp4"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var apis []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apis = append(apis, r.URL.Path)
+		_, _ = io.WriteString(w, `{"code":0}`)
+	}))
+	defer srv.Close()
+	n := config.Node{ID: "node-1", API: srv.URL, HTTPPort: 8090, MP4Save: root, Root: root}
+	h := &Hub{zlm: &zlmClient{http: srv.Client()}}
+	h.rememberVODLoad(n.ID, "mp4/"+rel, "__defaultVhost__", "vod", "clip")
+	got := attachVODMarks(h, n, "10.0.0.8", []MediaFile{{Path: "mp4/" + rel, Name: "a.mp4"}}, []vodLiveStream{
+		{Vhost: "__defaultVhost__", App: "live", Stream: "cam", OriginType: 0, OriginURL: "rtmp://src"},
+	})
+	if !got[0].VodLoaded || got[0].VodStream != "clip" {
+		t.Fatalf("missing stream was not restored: %+v", got[0])
+	}
+	if len(apis) == 0 || !strings.Contains(strings.Join(apis, ","), "/index/api/loadMP4File") {
+		t.Fatalf("expected reload loadMP4File, apis=%v", apis)
 	}
 }
 

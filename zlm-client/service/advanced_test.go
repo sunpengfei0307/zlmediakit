@@ -64,7 +64,6 @@ func TestAdvancedDeleteRecordDirectoryRequiresPeriodAndRejectsTraversal(t *testi
 		return `{"code":0,"path":"/data/zlm/mp4/live/cam/2026-08-24"}`
 	})
 	for _, q := range []url.Values{
-		{"app": {"live"}, "stream": {"cam"}},
 		{"app": {"live"}, "stream": {"cam"}, "period": {"2026-08"}},
 		{"app": {"live"}, "stream": {"cam"}, "period": {"2026-08-24"}, "name": {"../secret.mp4"}},
 		{"app": {"live"}, "stream": {"cam"}, "period": {"2026-08-24"}, "customized_path": {"/etc"}},
@@ -153,37 +152,21 @@ func TestAdvancedDeleteSnapDirectoryValidatesFileName(t *testing.T) {
 	}
 }
 
-func TestAdvancedBroadcastUsesTemplatesAndRejectsFreeformScript(t *testing.T) {
+func TestAdvancedBroadcastIsRemoved(t *testing.T) {
 	h, _, calls := newAdvancedHub(t, func(string, url.Values) string {
 		return `{"code":0}`
 	})
 	got := h.AdvancedOperation("node-1", "admin", AdvancedBroadcast, url.Values{
-		"schema": {"rtmp"}, "app": {"live"}, "stream": {"cam"},
-		"template": {"notice"}, "msg": {"<script>alert(1)</script>"},
-	})
-	if asFloat(got["code"]) == 0 || len(*calls) != 0 {
-		t.Fatalf("script message accepted: %+v calls=%+v", got, *calls)
-	}
-	got = h.AdvancedOperation("node-1", "admin", AdvancedBroadcast, url.Values{
 		"schema": {"rtmp"}, "app": {"live"}, "stream": {"cam"}, "template": {"maintenance"},
 	})
-	if asFloat(got["code"]) != 0 || (*calls)[0].api != "broadcastMessage" ||
-		(*calls)[0].form.Get("msg") != advancedBroadcastTemplates["maintenance"] ||
-		(*calls)[0].form.Get("schema") != "rtmp" {
-		t.Fatalf("templated broadcast failed result=%+v calls=%+v", got, *calls)
-	}
-	got = h.AdvancedOperation("node-1", "admin", AdvancedBroadcast, url.Values{
-		"schema": {"rtmp"}, "app": {"live"}, "stream": {"cam"},
-		"template": {"notice"}, "msg": {"计划 10 分钟后维护"},
-	})
-	if asFloat(got["code"]) != 0 || (*calls)[1].form.Get("msg") != "计划 10 分钟后维护" {
-		t.Fatalf("notice template failed result=%+v calls=%+v", got, *calls)
+	if asFloat(got["code"]) == 0 || len(*calls) != 0 {
+		t.Fatalf("broadcast still allowed: %+v calls=%+v", got, *calls)
 	}
 }
 
 func TestAdvancedOperationsFailClosedAndRejectUnknownOrDownloadAPIs(t *testing.T) {
 	h := &Hub{zlm: &zlmClient{http: http.DefaultClient}}
-	for _, action := range []string{AdvancedRestart, AdvancedDeleteRecordDir, AdvancedDeleteSnapDir, AdvancedBroadcast} {
+	for _, action := range []string{AdvancedRestart, AdvancedDeleteRecordDir, AdvancedDeleteSnapDir} {
 		got := h.AdvancedOperation("node-1", "admin", action, url.Values{
 			"app": {"live"}, "stream": {"cam"}, "period": {"2026-08-24"},
 			"schema": {"rtmp"}, "template": {"maintenance"},

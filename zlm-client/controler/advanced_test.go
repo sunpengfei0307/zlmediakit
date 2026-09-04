@@ -14,13 +14,12 @@ func TestAdvancedActionOnlyAllowsNamedOperations(t *testing.T) {
 		"restart":           "restartServer",
 		"delete-record-dir": "deleteRecordDirectory",
 		"delete-snap-dir":   "deleteSnapDirectory",
-		"broadcast":         "broadcastMessage",
 	} {
 		if got, ok := advancedAction(op); !ok || got != want {
 			t.Fatalf("op=%q got=%q ok=%v", op, got, ok)
 		}
 	}
-	for _, op := range []string{"", "downloadFile", "downloadBin", "getSnap", "restartServer"} {
+	for _, op := range []string{"", "downloadFile", "downloadBin", "getSnap", "restartServer", "broadcast"} {
 		if _, ok := advancedAction(op); ok {
 			t.Fatalf("op %q unexpectedly allowed", op)
 		}
@@ -47,12 +46,10 @@ func TestConfigAdvancedZoneHasGuardedForms(t *testing.T) {
 		`action="/config/advanced/restart"`,
 		`action="/config/advanced/delete-record-dir"`,
 		`action="/config/advanced/delete-snap-dir"`,
-		`action="/config/advanced/broadcast"`,
 		`name="period"`, `name="name"`, `name="file"`,
-		`name="schema"`, `name="template"`, `name="msg"`,
 		`for="adv-record-app"`, `for="adv-record-period"`,
-		`for="adv-snap-file"`, `for="adv-broadcast-msg"`,
-		"YYYY-MM-DD", "模板化广播",
+		`for="adv-snap-file"`,
+		"YYYY-MM-DD", "删除受限录像目录",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q", want)
@@ -67,7 +64,6 @@ func TestConfigAdvancedZoneHasGuardedForms(t *testing.T) {
 		"/config/advanced/restart",
 		"/config/advanced/delete-record-dir",
 		"/config/advanced/delete-snap-dir",
-		"/config/advanced/broadcast",
 	} {
 		re := regexp.MustCompile(`(?s)<form\b[^>]*hx-post="` + regexp.QuoteMeta(endpoint) + `"[^>]*>`)
 		tag := re.FindString(body)

@@ -276,6 +276,53 @@ func TestGroupMediaPrefersOriginTracksOverStaleMuxer(t *testing.T) {
 	}
 }
 
+func TestGroupMediaKeepsOriginAliveSecondAfterRepublish(t *testing.T) {
+	rows := []map[string]any{
+		{"schema": "hls", "vhost": "__defaultVhost__", "app": "live", "stream": "cam", "originTypeStr": "rtmp_push",
+			"aliveSecond": 3600.0, "bytesSpeed": 100.0, "totalBytes": 999999.0},
+		{"schema": "rtmp", "vhost": "__defaultVhost__", "app": "live", "stream": "cam", "originTypeStr": "rtmp_push",
+			"aliveSecond": 8.0, "bytesSpeed": 5000.0, "totalBytes": 4000.0,
+			"originSock": map[string]any{"peer_ip": "10.0.0.2", "peer_port": "45882", "identifier": "new-pub"}},
+	}
+	got := groupMedia(rows)
+	if len(got) != 1 || asFloat(got[0]["aliveSecond"]) != 8 {
+		t.Fatalf("must not keep lingering muxer duration: %+v", got)
+	}
+	if asFloat(got[0]["in_bps"]) != 5000 || asFloat(got[0]["read_size"]) != 4000 {
+		t.Fatalf("must use origin io: in=%v read=%v", got[0]["in_bps"], got[0]["read_size"])
+	}
+	rev := []map[string]any{rows[1], rows[0]}
+	got = groupMedia(rev)
+	if asFloat(got[0]["aliveSecond"]) != 8 {
+		t.Fatalf("origin first then stale muxer duration won: %+v", got[0])
+	}
+}
+
+func TestOverlayPublisherStatsUsesCurrentPushSession(t *testing.T) {
+	streams := []map[string]any{{
+		"app": "live", "stream": "cam",
+		"aliveSecond": 3600.0, "in_bytes": 9e6, "read_size": 9e6, "in_bps": 100.0,
+		"origin_peer": "1.1.1.1:1111",
+		"originSock":  map[string]any{"identifier": "new-pub"},
+	}}
+	sessions := []map[string]any{{
+		"id": "new-pub", "identifier": "new-pub",
+		"app": "live", "stream": "cam", "is_publisher": true,
+		"aliveSecond": 7.0, "peer_ip": "10.0.0.2", "peer_port": "45882",
+		"totalBytes": 1234.0, "bytesSpeed": 8000.0,
+	}}
+	overlayPublisherStats(streams, sessions)
+	if asFloat(streams[0]["aliveSecond"]) != 7 {
+		t.Fatalf("duration not reset to current push session: %+v", streams[0])
+	}
+	if asString(streams[0]["origin_peer"]) != "10.0.0.2:45882" {
+		t.Fatalf("peer=%v", streams[0]["origin_peer"])
+	}
+	if asFloat(streams[0]["read_size"]) != 1234 || asFloat(streams[0]["in_bps"]) != 8000 {
+		t.Fatalf("io not taken from current session: %+v", streams[0])
+	}
+}
+
 func TestRefreshGroupedTracksReparsesFromGetMediaInfo(t *testing.T) {
 	var infoHits int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

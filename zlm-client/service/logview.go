@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"zlm-admin/core/config"
 	"zlm-admin/model"
 
 	"github.com/nxadm/tail"
@@ -21,6 +22,16 @@ const (
 	logSnapMaxBytes = 96 << 10
 	logSnapMaxLines = 1200
 )
+
+const (
+	logSrcClient = "client"
+	logSrcServer = "server"
+)
+
+func isLogFileName(name string) bool {
+	low := strings.ToLower(name)
+	return strings.HasSuffix(low, ".log") || strings.HasSuffix(low, ".txt") || strings.HasSuffix(low, ".out")
+}
 
 func listLogFiles(dir string) ([]model.LogFileInfo, error) {
 	ents, err := os.ReadDir(dir)
@@ -33,7 +44,7 @@ func listLogFiles(dir string) ([]model.LogFileInfo, error) {
 			continue
 		}
 		name := e.Name()
-		if !strings.HasSuffix(name, ".log") && !strings.HasSuffix(name, ".txt") {
+		if !isLogFileName(name) {
 			continue
 		}
 		info, err := e.Info()
@@ -50,21 +61,91 @@ func listLogFiles(dir string) ([]model.LogFileInfo, error) {
 	return out, nil
 }
 
-func safeLogPath(dir, name string) (string, error) {
-	if name == "" {
-		files, err := listLogFiles(dir)
-		if err != nil {
-			return "", err
+func tagLogFiles(source, dir string) []model.LogFileInfo {
+	files, err := listLogFiles(dir)
+	if err != nil {
+		return nil
+	}
+	for i := range files {
+		files[i].Source = source
+		files[i].ID = source + "/" + files[i].Name
+	}
+	return files
+}
+
+func parseLogFileID(id string) (source, name string, err error) {
+	id = strings.TrimSpace(strings.ReplaceAll(id, "\\", "/"))
+	if id == "" {
+		return "", "", nil
+	}
+	if strings.Contains(id, "..") {
+		return "", "", os.ErrPermission
+	}
+	switch id {
+	case logSrcClient, logSrcServer:
+		return id, "", nil
+	}
+	if i := strings.Index(id, "/"); i >= 0 {
+		source, name = id[:i], id[i+1:]
+		if (source != logSrcClient && source != logSrcServer) || name == "" || strings.Contains(name, "/") {
+			return "", "", os.ErrPermission
 		}
+		return source, name, nil
+	}
+	return logSrcClient, id, nil
+}
+
+func logRoots(n config.Node) (clientDir, serverDir string) {
+	clientDir = strings.TrimSpace(config.LogDir())
+	if clientDir == "" {
+		clientDir = "log"
+	}
+	root := strings.TrimSpace(n.LogDir)
+	if root == "" {
+		root = clientDir
+	}
+	root = filepath.Clean(root)
+	if strings.EqualFold(filepath.Base(root), "zlm-server") {
+		serverDir = root
+		if filepath.Clean(clientDir) == serverDir {
+			clientDir = filepath.Dir(serverDir)
+		}
+		return clientDir, serverDir
+	}
+	return clientDir, filepath.Join(root, "zlm-server")
+}
+
+func resolveLogFile(clientDir, serverDir, id, wantSource string) (path, source, name, dir string, err error) {
+	source, name, err = parseLogFileID(id)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	if source == "" {
+		source = wantSource
+	}
+	if source == "" {
+		source = logSrcClient
+	}
+	dir = clientDir
+	if source == logSrcServer {
+		dir = serverDir
+	}
+	if name == "" {
+		files := tagLogFiles(source, dir)
 		if len(files) == 0 {
-			return "", os.ErrNotExist
+			return "", source, "", dir, os.ErrNotExist
 		}
 		name = files[0].Name
 	}
 	if strings.Contains(name, "/") || strings.Contains(name, "\\") || strings.Contains(name, "..") {
-		return "", os.ErrPermission
+		return "", "", "", "", os.ErrPermission
 	}
-	return filepath.Join(dir, name), nil
+	return filepath.Join(dir, name), source, name, dir, nil
+}
+
+func safeLogPath(dir, name string) (string, error) {
+	p, _, _, _, err := resolveLogFile(dir, filepath.Join(dir, "zlm-server"), name, logSrcClient)
+	return p, err
 }
 
 func lineLevel(line string) string {

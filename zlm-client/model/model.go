@@ -39,6 +39,8 @@ type MetricSample struct {
 }
 
 type LogFileInfo struct {
+	ID      string `json:"id"`
+	Source  string `json:"source"`
 	Name    string `json:"name"`
 	Size    int64  `json:"size"`
 	ModTime string `json:"mtime"`
