@@ -1,4 +1,3 @@
-centos8:
 1、执行：cd /data/zlmediakit/zlm-server/ && ./build.zlm.sh 
 2、执行：./control.sh zlm update 即可部署完成；
 3、访问：http://10.191.6.5:7788/ ，登录：amdin + key <cat /data/zlm/cfg/zlm-server.ini |grep secret>
