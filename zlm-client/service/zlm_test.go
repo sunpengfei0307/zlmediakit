@@ -3,10 +3,13 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -161,6 +164,66 @@ func TestRecordsUsesRuntimeMP4RecordEndpoint(t *testing.T) {
 		}
 	}
 	t.Fatalf("getMP4RecordFile was not called; paths=%s", strings.Join(paths, ", "))
+}
+
+func TestSetServerConfigPersistsFFmpegBinWhenAPIIgnoresIt(t *testing.T) {
+	dir := t.TempDir()
+	iniPath := filepath.Join(dir, "config.ini")
+	if err := os.WriteFile(iniPath, []byte("[ffmpeg]\nbin=/old/ffmpeg\ncmd=%s -i %s %s\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var posted url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/index/api/setServerConfig" {
+			t.Fatalf("path=%s", r.URL.Path)
+		}
+		_ = r.ParseForm()
+		posted = cloneValues(r.PostForm)
+		_, _ = w.Write([]byte(`{"code":0,"changed":0}`))
+	}))
+	defer srv.Close()
+
+	oldC := config.C
+	defer func() { config.C = oldC }()
+	config.C = &config.Setup{
+		Basic: config.Basic{FFmpeg: "/old/ffmpeg"},
+		Nodes: []config.Node{{ID: "node-1", API: srv.URL, INI: iniPath}},
+	}
+	oldBin := ffmpegBin
+	ffmpegBin = "/old/ffmpeg"
+	defer func() { ffmpegBin = oldBin }()
+
+	h := &Hub{zlm: &zlmClient{http: srv.Client()}}
+	got := h.setServerConfig(config.C.Nodes[0], []byte(`{"ffmpeg.bin":"/new/ffmpeg"}`))
+	if fmt.Sprint(got["code"]) != "0" {
+		t.Fatalf("got=%+v", got)
+	}
+	if posted.Get("ffmpeg.bin") != "/new/ffmpeg" {
+		t.Fatalf("api form=%v", posted)
+	}
+	raw, err := os.ReadFile(iniPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "/new/ffmpeg") {
+		t.Fatalf("ini not updated: %s", raw)
+	}
+	if !strings.Contains(string(raw), "cmd=") {
+		t.Fatal("ini lost other ffmpeg keys")
+	}
+	if config.C.Nodes[0].FFmpeg != "/new/ffmpeg" {
+		t.Fatalf("node ffmpeg=%s", config.C.Nodes[0].FFmpeg)
+	}
+	if config.C.Basic.FFmpeg != "/new/ffmpeg" {
+		t.Fatalf("basic ffmpeg=%s", config.C.Basic.FFmpeg)
+	}
+	if ffmpegBin != "" {
+		t.Fatalf("lookFFmpeg cache=%s", ffmpegBin)
+	}
+	warns, _ := got["warnings"].([]string)
+	if len(warns) == 0 {
+		t.Fatalf("missing warning that ffmpeg.bin needs rebuild/restart: %+v", got)
+	}
 }
 
 func TestSetServerConfigPropagatesHTTPErrorWithJSONResponse(t *testing.T) {
@@ -417,5 +480,155 @@ func TestAnnotateSessionBindsPullFromPlayerList(t *testing.T) {
 	}
 	if asString(httpPlay["role"]) != "拉流" || asString(httpPlay["app"]) != "live" {
 		t.Fatalf("http player should bind stream: %+v", httpPlay)
+	}
+}
+
+func TestICEProbeSessionsAreDroppedFromConnectionList(t *testing.T) {
+	ice := map[string]any{
+		"id": "10283-180", "typeid": "mediakit::IceSession",
+		"peer_ip": "151.243.11.240", "peer_port": "30352", "local_port": 3478,
+	}
+	stun := map[string]any{
+		"id": "1", "name": "stun", "typeid": "toolkit::StunSession", "local_port": 3478,
+	}
+	rtmp := map[string]any{
+		"id": "pub-1", "identifier": "pub-1", "typeid": "mediakit::RtmpSession",
+		"peer_ip": "10.0.0.8", "peer_port": "1000",
+	}
+	webrtc := map[string]any{
+		"id": "rtc-1", "typeid": "mediakit::WebRtcSession",
+		"app": "live", "stream": "cam", "peer_ip": "10.0.0.9",
+	}
+	annotateSession(ice, nil, nil)
+	annotateSession(stun, nil, nil)
+	annotateSession(rtmp, []map[string]any{{
+		"app": "live", "stream": "cam", "originSock": map[string]any{"identifier": "pub-1"},
+	}}, nil)
+	annotateSession(webrtc, nil, map[string][2]string{"id:rtc-1": {"live", "cam"}})
+	if !isICEProbeSession(ice) || !isICEProbeSession(stun) {
+		t.Fatalf("ice/stun probes must be hidden: ice=%+v stun=%+v", ice, stun)
+	}
+	if isICEProbeSession(rtmp) || isICEProbeSession(webrtc) {
+		t.Fatalf("real media sessions hidden: rtmp=%+v webrtc=%+v", rtmp, webrtc)
+	}
+	got := dropICEProbeSessions([]map[string]any{ice, stun, rtmp, webrtc})
+	if len(got) != 2 || asString(got[0]["id"]) != "pub-1" || asString(got[1]["id"]) != "rtc-1" {
+		t.Fatalf("kept=%+v", got)
+	}
+}
+
+func TestNodeActionDetailHidesICEProbeSessions(t *testing.T) {
+	var kicked []string
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/index/api/getAllSession":
+			_, _ = w.Write([]byte(`{"code":0,"data":[
+				{"id":"ice-1","typeid":"mediakit::IceSession","peer_ip":"8.8.8.8","peer_port":9,"local_port":3478},
+				{"id":"rtmp-1","identifier":"rtmp-1","typeid":"mediakit::RtmpSession","peer_ip":"10.0.0.8","peer_port":1000}
+			]}`))
+		case "/index/api/getMediaList":
+			_, _ = w.Write([]byte(`{"code":0,"data":[
+				{"schema":"rtmp","vhost":"__defaultVhost__","app":"live","stream":"cam","originTypeStr":"rtmp_push",
+				 "originSock":{"identifier":"rtmp-1"}}
+			]}`))
+		case "/index/api/kick_session":
+			_ = r.ParseForm()
+			mu.Lock()
+			kicked = append(kicked, r.Form.Get("id"))
+			mu.Unlock()
+			_, _ = w.Write([]byte(`{"code":0}`))
+		default:
+			_, _ = w.Write([]byte(`{"code":0,"data":[]}`))
+		}
+	}))
+	defer srv.Close()
+
+	old := config.C
+	config.C = &config.Setup{Nodes: []config.Node{{ID: "zlm-1", API: srv.URL}}}
+	defer func() { config.C = old }()
+
+	raw, status, _ := (&Hub{zlm: &zlmClient{http: srv.Client()}, online: map[string]bool{}}).NodeAction("zlm-1", "detail", "127.0.0.1", url.Values{}, nil)
+	if status != 200 {
+		t.Fatalf("status=%d", status)
+	}
+	detail, _ := raw.(map[string]any)
+	sessions, _ := detail["sessions"].([]map[string]any)
+	if len(sessions) != 1 || asString(sessions[0]["id"]) != "rtmp-1" {
+		t.Fatalf("sessions=%+v", sessions)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(kicked) != 1 || kicked[0] != "ice-1" {
+		t.Fatalf("detail must kick empty ice sessions, kicked=%v", kicked)
+	}
+}
+
+func TestSweepICEProbeSessionsKicksEmptyICEKeepsMediaPeers(t *testing.T) {
+	var kicked []string
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/index/api/kick_session" {
+			t.Fatalf("unexpected api %s", r.URL.Path)
+		}
+		_ = r.ParseForm()
+		mu.Lock()
+		kicked = append(kicked, r.Form.Get("id"))
+		mu.Unlock()
+		_, _ = w.Write([]byte(`{"code":0}`))
+	}))
+	defer srv.Close()
+
+	h := &Hub{zlm: &zlmClient{http: srv.Client()}}
+	n := config.Node{ID: "zlm-1", API: srv.URL}
+	got := h.sweepICEProbeSessions(n, []map[string]any{
+		{"id": "ice-scan", "typeid": "mediakit::IceSession", "peer_ip": "8.8.8.8", "local_port": 3478},
+		{"id": "ice-keep", "typeid": "mediakit::IceSession", "peer_ip": "10.0.0.9", "local_port": 3478},
+		{"id": "rtc-1", "typeid": "mediakit::WebRtcSession", "peer_ip": "10.0.0.9", "app": "live", "stream": "cam"},
+		{"id": "rtmp-1", "typeid": "mediakit::RtmpSession", "peer_ip": "10.0.0.8"},
+	})
+	if got != 1 {
+		t.Fatalf("kicked count=%d", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(kicked) != 1 || kicked[0] != "ice-scan" {
+		t.Fatalf("kicked=%v", kicked)
+	}
+}
+
+func TestSampleOnceSweepsICEProbesWithoutHistory(t *testing.T) {
+	var kicked []string
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/index/api/getAllSession":
+			_, _ = w.Write([]byte(`{"code":0,"data":[
+				{"id":"ice-1","typeid":"mediakit::IceSession","peer_ip":"1.1.1.1","peer_port":9,"local_port":3478}
+			]}`))
+		case "/index/api/kick_session":
+			_ = r.ParseForm()
+			mu.Lock()
+			kicked = append(kicked, r.Form.Get("id"))
+			mu.Unlock()
+			_, _ = w.Write([]byte(`{"code":0}`))
+		default:
+			_, _ = w.Write([]byte(`{"code":0,"data":[]}`))
+		}
+	}))
+	defer srv.Close()
+
+	old := config.C
+	config.C = &config.Setup{Nodes: []config.Node{{ID: "zlm-1", API: srv.URL}}}
+	defer func() { config.C = old }()
+
+	h := &Hub{zlm: &zlmClient{http: srv.Client()}, online: map[string]bool{}}
+	h.sampleOnce()
+	mu.Lock()
+	defer mu.Unlock()
+	if len(kicked) != 1 || kicked[0] != "ice-1" {
+		t.Fatalf("sampleOnce must kick empty ice sessions, kicked=%v", kicked)
 	}
 }

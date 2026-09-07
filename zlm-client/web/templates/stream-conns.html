@@ -17,7 +17,7 @@
   </div>
   <table class="subtbl">
     <thead><tr>
-      <th class="col-id">ID</th><th>方向</th><th>类型</th><th>对端</th><th>本地</th>
+      <th class="col-id">ID</th><th>方向</th><th>类型</th><th class="col-peer">对端</th><th class="col-local">本地</th>
       <th title="推流：源流音视频 PTS 差。拉流：ZLM 无按会话接口">A-V同步</th>
       <th>说明</th><th>时长</th><th class="col-kick">操作</th>
     </tr></thead>
@@ -27,7 +27,8 @@
         <td class="col-id muted">{{if asStr (index . "_id")}}{{asStr (index . "_id")}}{{else}}-{{end}}</td>
         <td>{{asStr (index . "_kind")}}</td>
         <td>{{asStr (index . "name")}}{{if not (asStr (index . "name"))}}{{asStr (index . "typeid")}}{{end}}{{if not (asStr (index . "name"))}}{{if not (asStr (index . "typeid"))}}{{asStr (index . "schema")}}{{end}}{{end}}</td>
-        <td class="peer-cell">
+        <td class="peer-cell col-peer">
+          <div class="peer-inner">
           <span>{{asStr (index . "peer_ip")}}{{if index . "peer_port"}}:{{asStr (index . "peer_port")}}{{end}}</span>
           {{if and (asStr (index . "peer_ip")) (or (eq (asStr (index . "_kind")) "推流") (eq (asStr (index . "_kind")) "拉流"))}}
           <div class="act-row peer-acl">
@@ -73,8 +74,9 @@
             {{end}}
           </div>
           {{end}}
+          </div>
         </td>
-        <td>{{asStr (index . "local_ip")}}{{if index . "local_port"}}:{{asStr (index . "local_port")}}{{end}}</td>
+        <td class="col-local">{{asStr (index . "local_ip")}}{{if index . "local_port"}}:{{asStr (index . "local_port")}}{{end}}</td>
         <td>
           {{if eq (asStr (index . "_kind")) "拉流"}}
             <span class="muted" title="ZLM 的 getMediaPlayerList / getAllSession 不返回播放会话的音视频时间戳，拉流只转发源流 PTS">—</span>

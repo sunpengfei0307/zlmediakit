@@ -73,6 +73,9 @@ func TestValidateOpsConfig(t *testing.T) {
 }
 
 func TestCfgPlaceholder(t *testing.T) {
+	if CfgPlaceholder("ffmpeg.bin") != "须为绝对路径；已在跑的 FFmpeg 源需删除重建" {
+		t.Fatal(CfgPlaceholder("ffmpeg.bin"))
+	}
 	if CfgPlaceholder("http.port") != "有效范围 0-65535" {
 		t.Fatal(CfgPlaceholder("http.port"))
 	}

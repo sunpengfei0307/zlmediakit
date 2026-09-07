@@ -270,6 +270,10 @@ type nodeOut struct {
 	BranchName   string             `json:"branchName,omitempty"`
 	CommitHash   string             `json:"commitHash,omitempty"`
 	VersionError string             `json:"version_error,omitempty"`
+	ServerUptime string             `json:"server_uptime,omitempty"`
+	ServerSince  string             `json:"server_since,omitempty"`
+	ClientUptime string             `json:"client_uptime,omitempty"`
+	ClientSince  string             `json:"client_since,omitempty"`
 }
 
 func (h *Hub) Overview() map[string]any {
@@ -287,19 +291,26 @@ func (h *Hub) Overview() map[string]any {
 			snap, grouped := h.zlm.groupedLiveMedia(&n)
 			h.rememberNode(n)
 			h.noteReachable(n.ID, n.API, snap.Online, snap.Error)
-			h.clock.observe(n.ID, snap.Sessions, true)
-			overlayPublisherStats(grouped, snap.Sessions)
+			h.sweepICEProbeSessions(n, snap.Sessions)
+			kept := dropICEProbeSessions(snap.Sessions)
+			h.clock.observe(n.ID, kept, true)
+			overlayPublisherStats(grouped, kept)
 			out := nodeOut{
 				Node:      publicNode(n),
 				Online:    snap.Online,
 				Error:     snap.Error,
 				Streams:   len(grouped),
-				Sessions:  len(snap.Sessions),
+				Sessions:  len(kept),
 				Statistic: snap.Statistic,
 				ThreadAvg: avgLoad(snap.Threads),
 				HookSeen:  h.lastHook(n.ID),
 			}
 			applyLiveStats(&out, grouped)
+			up := collectProcessUptime(n)
+			out.ServerUptime = up.Server
+			out.ServerSince = up.ServerSince
+			out.ClientUptime = up.Client
+			out.ClientSince = up.ClientSince
 			if snap.Online {
 				version, err := h.cachedVersion(n)
 				out.BuildTime = version.BuildTime
@@ -354,15 +365,17 @@ func (h *Hub) NodeAction(id, action, host string, q url.Values, body []byte) (an
 		h.rememberNode(n)
 		h.noteReachable(n.ID, n.API, snap.Online, snap.Error)
 		players := h.zlm.collectPlayers(n, grouped)
-		sessions := make([]map[string]any, 0, len(snap.Sessions))
+		annotated := make([]map[string]any, 0, len(snap.Sessions))
 		for _, s := range snap.Sessions {
 			row := map[string]any{}
 			for k, v := range s {
 				row[k] = v
 			}
 			annotateSession(row, grouped, players)
-			sessions = append(sessions, row)
+			annotated = append(annotated, row)
 		}
+		h.sweepICEProbeSessions(n, annotated)
+		sessions := dropICEProbeSessions(annotated)
 		h.clock.observe(n.ID, sessions, true)
 		overlayPublisherStats(grouped, sessions)
 		var hostm *model.HostMetrics
@@ -958,6 +971,10 @@ func (h *Hub) setServerConfig(n config.Node, body []byte) map[string]any {
 	if len(vals) == 0 {
 		return map[string]any{"code": -1, "msg": "没有可保存的配置项"}
 	}
+	if err := persistBlockedZLMKeys(n.INI, kv); err != nil {
+		logger.Warnf("persist blocked zlm keys to %s failed: %v", n.INI, err)
+	}
+	applyLocalFFmpegBin(n.ID, kv)
 	ret, err := h.zlm.callPOST(n, "setServerConfig", vals)
 	if err != nil {
 		return zlmCallFailure(ret, err)
@@ -968,10 +985,15 @@ func (h *Hub) setServerConfig(n config.Node, body []byte) map[string]any {
 	sort.Strings(restart)
 	ret["changed"] = len(vals)
 	ret["restart_keys"] = restart
-	if warns := issueMsgs(issues, false); len(warns) > 0 {
+	warns := issueMsgs(issues, false)
+	if _, ok := vals["ffmpeg.bin"]; ok {
+		warns = append(warns, "ffmpeg.bin 已写入配置；已在跑的 FFmpeg 源需删除后重建。若页面仍是旧路径，请重启 zlm-server")
+	}
+	if len(warns) > 0 {
 		ret["warnings"] = warns
 	}
 	h.refreshNodeIni(n.ID)
+	applyLocalFFmpegBin(n.ID, kv)
 	if n2, ok := h.nodeByID(n.ID); ok {
 		ret["node"] = publicNode(n2)
 	} else {
@@ -1157,6 +1179,40 @@ func (h *Hub) setMonitor(id string, body []byte) (any, int, []byte) {
 	return out, 200, nil
 }
 
+func (h *Hub) sweepICEProbeSessions(n config.Node, sessions []map[string]any) int {
+	if h == nil || h.zlm == nil || len(sessions) == 0 {
+		return 0
+	}
+	protected := iceProtectedPeers(sessions)
+	kicked := 0
+	for _, row := range sessions {
+		if kicked >= iceProbeKickLimit {
+			logger.Warnf("清理空 ICE 会话达到上限 node=%s limit=%d", n.ID, iceProbeKickLimit)
+			break
+		}
+		if !isICEProbeSession(row) {
+			continue
+		}
+		peer := icePeerKey(row)
+		if peer != "" {
+			if _, ok := protected[peer]; ok {
+				continue
+			}
+		}
+		sid := sessionKickID(row)
+		if sid == "" {
+			continue
+		}
+		if _, err := h.zlm.callPOST(n, "kick_session", url.Values{"id": {sid}}); err != nil {
+			logger.Warnf("清理空 ICE 会话失败 node=%s id=%s peer=%s err=%v", n.ID, sid, peer, err)
+			continue
+		}
+		kicked++
+		logger.Infor("清理空 ICE 会话 node=%s id=%s peer=%s", n.ID, sid, peer)
+	}
+	return kicked
+}
+
 func (h *Hub) kickSession(n config.Node, id string) map[string]any {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -1307,8 +1363,9 @@ func (h *Hub) streamConns(n config.Node, vhost, app, stream string) map[string]a
 			players = append(players, p)
 		}
 	}
-	all := make([]map[string]any, 0, len(snap.Sessions)+len(pubs)+len(players)+len(related))
-	all = append(all, snap.Sessions...)
+	kept := dropICEProbeSessions(snap.Sessions)
+	all := make([]map[string]any, 0, len(kept)+len(pubs)+len(players)+len(related))
+	all = append(all, kept...)
 	all = append(all, pubs...)
 	all = append(all, players...)
 	all = append(all, related...)
@@ -1600,9 +1657,6 @@ func (h *Hub) SampleLoop() {
 }
 
 func (h *Hub) sampleOnce() {
-	if h.hist == nil {
-		return
-	}
 	h.mu.Lock()
 	nodes := append([]config.Node(nil), config.C.Nodes...)
 	h.mu.Unlock()
@@ -1611,16 +1665,24 @@ func (h *Hub) sampleOnce() {
 	for _, n := range nodes {
 		n := n
 		snap := h.zlm.fetchAll(&n)
-		h.clock.observe(n.ID, snap.Sessions, true)
+		h.sweepICEProbeSessions(n, snap.Sessions)
+		kept := dropICEProbeSessions(snap.Sessions)
+		h.clock.observe(n.ID, kept, true)
 		h.noteReachable(n.ID, n.API, snap.Online, snap.Error)
+		if h.hist == nil {
+			continue
+		}
 		grouped := groupMedia(snap.Media)
 		push += len(grouped)
-		conn += len(snap.Sessions)
+		conn += len(kept)
 		for _, g := range grouped {
 			pull += int(asFloat(g["totalReaderCount"]))
 			inBps += asFloat(g["in_bps"])
 			outBps += asFloat(g["out_bps"])
 		}
+	}
+	if h.hist == nil {
+		return
 	}
 	hm := collectHost("/")
 	h.hist.add(model.MetricSample{

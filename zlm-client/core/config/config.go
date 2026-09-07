@@ -152,6 +152,10 @@ func LogDir() string {
 	return C.Loger.Path
 }
 
+const runtimeClientTOML = "/data/zlm/cfg/zlm-client.toml"
+
+// findConfigFile 未指定 -config 时的查找顺序：
+// 当前目录 config.toml → ./core/config/config.toml → 沿父目录重复这两档 → /data/zlm/cfg/zlm-client.toml。
 func findConfigFile() string {
 	if file := os.Getenv("ZLM_ADMIN_CONFIG"); file != "" {
 		return file
@@ -159,16 +163,21 @@ func findConfigFile() string {
 	pwd, _ := os.Getwd()
 	dir, _ := filepath.Abs(pwd)
 	for {
-		candidate := filepath.Join(dir, "core", "config", "config.toml")
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate
+		for _, rel := range []string{
+			filepath.Join(dir, "config.toml"),
+			filepath.Join(dir, "core", "config", "config.toml"),
+		} {
+			if _, err := os.Stat(rel); err == nil {
+				return rel
+			}
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return candidate
+			break
 		}
 		dir = parent
 	}
+	return runtimeClientTOML
 }
 
 func Reload(file string) *Setup {
@@ -206,6 +215,11 @@ func Save() error {
 
 func init() {
 	File = findConfigFile()
+	if _, err := os.Stat(File); err != nil {
+		C = new(Setup)
+		C.normalize()
+		return
+	}
 	C = New(File)
 	fmt.Printf("Hi! setup({path:'%+v'}) parse success!\n", File)
 }

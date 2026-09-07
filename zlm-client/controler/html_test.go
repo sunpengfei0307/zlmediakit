@@ -85,12 +85,16 @@ func TestThemeSwitchMarkupAndTokens(t *testing.T) {
 		"html[data-nav=\"sidebar\"] .user-menu-panel",
 		"bottom: calc(100% + 8px)",
 		".file-name-cell .file-jump",
+		"#content.page-sessions .peer-inner",
 		"#content.page-sessions .peer-acl",
 		"margin-left: auto; flex: 0 0 auto;",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("theme.css missing %q", want)
 		}
+	}
+	if strings.Contains(out, ".peer-cell {\n  display: flex") {
+		t.Fatal("td.peer-cell must stay table-cell; flex belongs on .peer-inner")
 	}
 	if strings.Contains(out, "html[data-nav=\"sidebar\"] header {") {
 		t.Fatal("sidebar header styles must target body > header, not every <header>")

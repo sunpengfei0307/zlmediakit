@@ -342,17 +342,20 @@ a.ov-chip:hover { border-color: color-mix(in srgb, var(--el-color-primary) 45%, 
 .ov-chip-proto { background: var(--surface); }
 .ov-panel {
   background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
-  padding: 14px 16px;
+  padding: 18px 16px;
 }
 .ov-panel > h3 {
   margin: 0 0 10px; font-size: 12px; font-weight: 700; color: var(--muted);
   letter-spacing: .06em;
 }
 .ov-node .hero-stats { margin: 8px 0 10px; }
-.ov-node .hero-paths { margin-bottom: 10px; }
+.ov-node .hero-paths {
+  margin-bottom: 0;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px 14px;
+}
+.ov-node .hero-paths > div { min-width: 0; }
 .ov-node .path-chip { display: block; line-height: 1.45; }
-.ov-jump { display: flex; flex-wrap: wrap; gap: 6px; }
-.ov-jump .ghost { text-decoration: none; padding: 4px 10px; font-size: 12px; }
 .ov-io { height: auto; margin-top: 12px; }
 .ov-objects { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .ov-obj {
@@ -379,6 +382,9 @@ a.ov-chip:hover { border-color: color-mix(in srgb, var(--el-color-primary) 45%, 
 @media (max-width: 720px) {
   .ov-kpis { grid-template-columns: 1fr 1fr; }
   .ov-objects { grid-template-columns: 1fr; }
+}
+@media (max-width: 420px) {
+  .ov-node .hero-paths { grid-template-columns: 1fr; }
 }
 .kpi {
   background: var(--panel);
@@ -1555,13 +1561,27 @@ fieldset.proto-lock:disabled textarea {
 #content.page-auth .rec-bar { flex-wrap: wrap; }
 #content.page-auth .auth-ip-table { flex: 0 1 auto; max-height: 280px; }
 #content.page-sessions .peer-cell,
-#content.page-streams .peer-cell {
+#content.page-streams .peer-cell,
+#content.page-sessions .col-peer,
+#content.page-streams .col-peer {
+  min-width: 280px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+#content.page-sessions .col-local,
+#content.page-streams .col-local {
+  min-width: 140px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+#content.page-sessions .peer-inner,
+#content.page-streams .peer-inner {
   display: flex; flex-wrap: nowrap; align-items: center;
   justify-content: space-between; gap: 8px;
-  min-width: 280px; width: 100%;
+  min-width: 0; width: 100%;
 }
-#content.page-sessions .peer-cell > span,
-#content.page-streams .peer-cell > span {
+#content.page-sessions .peer-inner > span,
+#content.page-streams .peer-inner > span {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 #content.page-sessions .peer-acl,

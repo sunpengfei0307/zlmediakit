@@ -929,6 +929,76 @@ func annotateSession(row map[string]any, streams []map[string]any, players map[s
 	row["is_publisher"] = isPub
 }
 
+func iceProbeName(row map[string]any) string {
+	name := strings.ToLower(strings.TrimSpace(asString(row["name"])))
+	if name == "" {
+		name = strings.ToLower(strings.TrimSpace(sessionName(row)))
+	}
+	return name
+}
+
+func isICEProbeSession(row map[string]any) bool {
+	if row == nil {
+		return false
+	}
+	name := iceProbeName(row)
+	tid := strings.ToLower(asString(row["typeid"]))
+	probe := name == "ice" || name == "stun" || name == "turn" ||
+		strings.Contains(tid, "icesession") || strings.Contains(tid, "stunsession") ||
+		strings.Contains(tid, "turnsession")
+	if !probe {
+		return false
+	}
+	if asString(row["app"]) != "" && asString(row["stream"]) != "" {
+		return false
+	}
+	if asString(row["media_key"]) != "" {
+		return false
+	}
+	return true
+}
+
+func dropICEProbeSessions(rows []map[string]any) []map[string]any {
+	if len(rows) == 0 {
+		return rows
+	}
+	out := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		if isICEProbeSession(row) {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+const iceProbeKickLimit = 80
+
+func icePeerKey(row map[string]any) string {
+	return strings.TrimSpace(asString(row["peer_ip"]))
+}
+
+func sessionKickID(row map[string]any) string {
+	id := strings.TrimSpace(asString(row["id"]))
+	if id == "" {
+		id = strings.TrimSpace(asString(row["identifier"]))
+	}
+	return id
+}
+
+func iceProtectedPeers(rows []map[string]any) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, row := range rows {
+		if row == nil || isICEProbeSession(row) {
+			continue
+		}
+		if peer := icePeerKey(row); peer != "" {
+			out[peer] = struct{}{}
+		}
+	}
+	return out
+}
+
 var externOnce sync.Map
 
 func (c *zlmClient) ensureExternIP(node config.Node, ip string) {

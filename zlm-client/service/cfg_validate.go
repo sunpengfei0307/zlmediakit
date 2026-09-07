@@ -181,6 +181,8 @@ func CfgPlaceholder(k string) string {
 		return "有效范围 0-86400 秒"
 	case isUintKey(name, lk):
 		return "须为非负整数"
+	case lk == "ffmpeg.bin":
+		return "须为绝对路径；已在跑的 FFmpeg 源需删除重建"
 	case isPathKey(name, lk):
 		return "须为绝对路径"
 	}

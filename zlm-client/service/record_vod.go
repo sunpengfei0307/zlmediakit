@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode"
 	"zlm-admin/core/config"
+	"zlm-admin/core/logger"
 )
 
 var recordSchemas = map[string]bool{
@@ -406,8 +407,20 @@ func (h *Hub) RecordVODOperation(nodeID, user, action string, q url.Values) map[
 			} else {
 				err = fmt.Errorf("无法定位要删除的文件")
 			}
-		} else if removeErr := os.Remove(abs); removeErr != nil {
-			err = fmt.Errorf("删除失败")
+		} else {
+			rel := strings.TrimSpace(q.Get("file_path"))
+			load, _ := h.lookupVODLoad(n.ID, rel)
+			if load.App == "" {
+				load, _ = h.lookupVODLoad(n.ID, canonVODRel(rel))
+			}
+			h.closeVODStream(n, load)
+			if removeErr := os.Remove(abs); removeErr != nil {
+				err = fmt.Errorf("删除失败")
+			} else {
+				h.removeVODPlayback(n, load, rel)
+				h.forgetVODLoad(n.ID, rel)
+				h.forgetVODLoad(n.ID, canonVODRel(rel))
+			}
 		}
 	default:
 		err = fmt.Errorf("unknown operation")
@@ -663,6 +676,125 @@ func (h *Hub) forgetVODLoad(nodeID, rel string) {
 	delete(h.vodLoads, vodFileKey(nodeID, rel))
 	h.vodMu.Unlock()
 	h.persistVODLoad(nodeID, rel, vodLoad{}, true)
+}
+
+func (h *Hub) closeVODStream(n config.Node, load vodLoad) {
+	if h == nil || h.zlm == nil || strings.TrimSpace(load.App) == "" || strings.TrimSpace(load.Stream) == "" {
+		return
+	}
+	vhost := strings.TrimSpace(load.Vhost)
+	if vhost == "" {
+		vhost = "__defaultVhost__"
+	}
+	_, _ = h.zlm.callPOST(n, "close_streams", url.Values{
+		"vhost": {vhost}, "app": {load.App}, "stream": {load.Stream}, "force": {"1"},
+	})
+}
+
+func inferVODLoad(rel string, load vodLoad) vodLoad {
+	if strings.TrimSpace(load.App) != "" && strings.TrimSpace(load.Stream) != "" {
+		return load
+	}
+	base := filepath.Base(filepath.ToSlash(strings.TrimSpace(rel)))
+	if base == "" || base == "." || base == "/" {
+		return load
+	}
+	if load.App == "" {
+		load.App = "vod"
+	}
+	if load.Stream == "" {
+		load.Stream = strings.TrimSuffix(base, filepath.Ext(base))
+	}
+	if load.Vhost == "" {
+		load.Vhost = "__defaultVhost__"
+	}
+	return load
+}
+
+func vodPlaybackDirs(n config.Node, load vodLoad) []string {
+	app := strings.TrimSpace(load.App)
+	stream := strings.TrimSpace(load.Stream)
+	if app == "" || stream == "" || strings.Contains(app, "..") || strings.Contains(stream, "..") ||
+		strings.ContainsAny(app, `/\`) || strings.ContainsAny(stream, `/\`) {
+		return nil
+	}
+	bases := []string{mediaRootOf(n)}
+	if p := strings.TrimSpace(n.HLSSave); p != "" {
+		bases = append(bases, p)
+	}
+	if p := strings.TrimSpace(n.WWW); p != "" {
+		bases = append(bases, p)
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(p string) {
+		p = filepath.Clean(p)
+		if p == "" || seen[p] {
+			return
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	for _, base := range bases {
+		base = strings.TrimSpace(base)
+		if base == "" {
+			continue
+		}
+		add(filepath.Join(base, app, stream))
+		add(filepath.Join(base, "__defaultVhost__", app, stream))
+		if vhost := strings.TrimSpace(load.Vhost); vhost != "" && vhost != "__defaultVhost__" && !strings.Contains(vhost, "..") && !strings.ContainsAny(vhost, `/\`) {
+			add(filepath.Join(base, vhost, app, stream))
+		}
+	}
+	return out
+}
+
+func (h *Hub) removeVODPlayback(n config.Node, load vodLoad, rel string) {
+	load = inferVODLoad(rel, load)
+	roots := nodeRoots(n)
+	if media := mediaRootOf(n); media != "" {
+		roots = append(roots, media)
+	}
+	for _, dir := range vodPlaybackDirs(n, load) {
+		ok := false
+		for _, root := range roots {
+			if insideRoot(root, dir) && filepath.Clean(dir) != filepath.Clean(root) {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			continue
+		}
+		if err := os.RemoveAll(dir); err != nil && !os.IsNotExist(err) {
+			logger.Warnf("remove vod dir %s failed: %v", dir, err)
+			continue
+		}
+		for _, root := range roots {
+			if insideRoot(root, dir) {
+				pruneEmptyParents(root, dir)
+			}
+		}
+	}
+}
+
+func pruneEmptyParents(root, dir string) {
+	root = filepath.Clean(root)
+	cur := filepath.Clean(dir)
+	for {
+		parent := filepath.Dir(cur)
+		if parent == cur || parent == root || !insideRoot(root, parent) {
+			return
+		}
+		entries, err := os.ReadDir(parent)
+		if err != nil || len(entries) > 0 {
+			return
+		}
+		if err := os.Remove(parent); err != nil {
+			return
+		}
+		cur = parent
+	}
 }
 
 func (h *Hub) lookupVODLoad(nodeID, rel string) (vodLoad, bool) {

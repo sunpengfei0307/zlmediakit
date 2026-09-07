@@ -76,14 +76,14 @@
       <div class="lab">录制中</div><div class="val">{{.KPI.Recording}}</div>
     </a>
   </div>
-  <div class="ov-strip">
+  <!-- <div class="ov-strip">
     <a class="ov-chip" href="/streams" hx-get="/streams" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" hx-disinherit="*" title="协议实例（MediaSource）">协议实例<b>{{.KPI.MediaSource}}</b></a>
     <a class="ov-chip" href="/streams" hx-get="/streams" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" hx-disinherit="*" title="尚未就绪的流">等待<b>{{.KPI.Waiting}}</b></a>
     <a class="ov-chip" href="/events" hx-get="/events" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" hx-disinherit="*" title="打开 Hook 事件">Hook<b>{{.KPI.Hook}}</b></a>
     {{range .KPI.Protocols}}
     <span class="ov-chip ov-chip-proto">{{.Name}}<b>{{.Count}}</b></span>
     {{end}}
-  </div>
+  </div> -->
   <!-- {{if .KPI.Protocols}}
   <article class="ov-panel ov-proto-card">
     <h3>协议构成</h3>
@@ -122,11 +122,8 @@
     <div class="hero-paths">
       {{if .Root}}<div><div class="lab">工作目录</div><div class="path-chip">{{.Root}}</div></div>{{end}}
       {{if .Bin}}<div><div class="lab">二进制</div><div class="path-chip">{{.Bin}}</div></div>{{end}}
-    </div>
-    <div class="ov-jump">
-      <a class="ghost" href="/streams" hx-get="/streams" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" hx-disinherit="*">直播</a>
-      <a class="ghost" href="/sessions" hx-get="/sessions" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" hx-disinherit="*">连接</a>
-      <a class="ghost" href="/files" hx-get="/files" hx-target="#content" hx-push-url="true" hx-swap="innerHTML" hx-disinherit="*">录制</a>
+      <div><div class="lab">zlm-server 运行</div><div class="path-chip" title="{{if .ServerSince}}启动于 {{.ServerSince}}{{end}}">{{if .ServerUptime}}{{.ServerUptime}}{{else}}—{{end}}</div></div>
+      <div><div class="lab">zlm-client 运行</div><div class="path-chip" title="{{if .ClientSince}}启动于 {{.ClientSince}}{{end}}">{{if .ClientUptime}}{{.ClientUptime}}{{else}}—{{end}}</div></div>
     </div>
     {{if .Error}}<div class="err" style="margin-top:8px">{{.Error}}</div>{{end}}
   </article>

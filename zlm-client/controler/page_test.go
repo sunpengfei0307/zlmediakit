@@ -559,7 +559,8 @@ func TestSessionsAndFilesSupportCurrentPageBatchSelect(t *testing.T) {
 		`hx-post="/ui/sessions/kick-selected"`, "踢出选中", `class="batch-bar"`,
 		`{{template "table-pager" .Pager}}`, "关联流", "app-row", ".Groups",
 		`sortURL "/sessions" .ListQuery "media"`,
-		`hx-post="/auth/ip/add"`, "黑名单", "白名单", `class="peer-cell"`,
+		`hx-post="/auth/ip/add"`, "黑名单", "白名单", `class="peer-cell col-peer"`,
+		`class="peer-inner"`, `class="col-local"`,
 		`class="act-row peer-acl"`,
 		`name="allow_push" value="1"`, `name="allow_play" value="1"`,
 		"全部推拉连接", "默认允许该 IP 的推流和拉流",
@@ -924,10 +925,14 @@ func TestOverviewTemplateShowsZLMVersion(t *testing.T) {
 		"ov-page", "ov-left", "ov-side", "入口码率", "出口码率", "录制中",
 		"MediaSource", "TcpSession", "RtpPacket", "KPI.InSpeed", "KPI.OutSpeed",
 		"chartBitrate", "chartNet", "协议构成", "frag=live-main", "frag=live-side",
+		"ServerUptime", "ClientUptime", "zlm-server 运行", "zlm-client 运行",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("overview missing %q", want)
 		}
+	}
+	if strings.Contains(out, `class="ov-jump"`) {
+		t.Fatal("node card must not keep 直播/连接/录制 jump buttons")
 	}
 }
 
@@ -937,7 +942,7 @@ func TestStreamDetailTemplateShowsMediaInfoErrorsLocally(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := string(raw)
-	for _, want := range []string{"media_error", "media_online", "media_info", "expand-summary", "expand-detail", `class="col-kick"`, `hx-post="/auth/ip/add"`, "黑名单", "白名单", `class="act-row peer-acl"`, `name="allow_push" value="1"`, `name="allow_play" value="1"`, "全部推拉连接", `index . "ip_black"`, `disabled title="已在黑名单"`} {
+	for _, want := range []string{"media_error", "media_online", "media_info", "expand-summary", "expand-detail", `class="col-kick"`, `hx-post="/auth/ip/add"`, "黑名单", "白名单", `class="peer-inner"`, `class="col-peer"`, `class="col-local"`, `class="act-row peer-acl"`, `name="allow_push" value="1"`, `name="allow_play" value="1"`, "全部推拉连接", `index . "ip_black"`, `disabled title="已在黑名单"`} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("stream detail missing %q", want)
 		}
@@ -1041,6 +1046,8 @@ func TestOverviewLiveTemplateRendersNewMetrics(t *testing.T) {
 					"Name": "zlm-1", "ID": "zlm-1", "API": "http://127.0.0.1:80",
 					"Online": true, "BuildTime": "2026-08-20", "BranchName": "main", "CommitHash": "abc123",
 					"Root": "/data/zlm", "Bin": "/data/zlm/MediaServer",
+					"ServerUptime": "2天 3小时 12分", "ServerSince": "2026-09-05 07:21:00",
+					"ClientUptime": "4小时 8分 9秒", "ClientSince": "2026-09-07 06:12:51",
 					"ThreadAvg": 12.5, "MediaSource": 8, "Muxer": 2,
 					"TcpSession": 5, "UdpSession": 1, "Socket": 9, "Buffer": 20, "Frame": 3,
 					"RtpPacket": 4, "RtmpPacket": 6, "TcpServer": 3, "UdpServer": 2,
@@ -1056,10 +1063,13 @@ func TestOverviewLiveTemplateRendersNewMetrics(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	for _, want := range []string{"直播流", "入口码率", "录制中", "MediaSource", "TcpSession", "zlm-1", "rtmp"} {
+	for _, want := range []string{"直播流", "入口码率", "录制中", "MediaSource", "TcpSession", "zlm-1", "rtmp", "zlm-server 运行", "2天 3小时 12分", "zlm-client 运行", "4小时 8分 9秒"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, `class="ov-jump"`) || strings.Contains(out, ">直播</a>") {
+		t.Fatal("node card still has jump buttons")
 	}
 }
 

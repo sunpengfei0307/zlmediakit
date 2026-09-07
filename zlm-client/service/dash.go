@@ -48,10 +48,10 @@ func ffmpegCandidates() []string {
 		}
 	}
 	if config.C != nil {
-		add(config.C.Basic.FFmpeg)
 		for _, n := range config.C.Nodes {
 			add(n.FFmpeg)
 		}
+		add(config.C.Basic.FFmpeg)
 	}
 	add("/data/sunpf/ffmpeg-builds/build/release/bin/ffmpeg")
 	add("/usr/local/bin/ffmpeg")

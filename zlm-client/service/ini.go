@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"zlm-admin/core/config"
@@ -105,5 +106,113 @@ func ApplyZLMIni(n *config.Node) {
 	}
 	if n.WWW == "" {
 		n.WWW = "/data/zlm"
+	}
+}
+
+func persistBlockedZLMKeys(iniPath string, kv map[string]string) error {
+	if strings.TrimSpace(iniPath) == "" || len(kv) == 0 {
+		return nil
+	}
+	blocked := map[string]string{}
+	for k, v := range kv {
+		lk := strings.ToLower(strings.TrimSpace(k))
+		if lk == "ffmpeg.bin" || lk == "ffmpeg.snap" {
+			blocked[lk] = v
+		}
+	}
+	if len(blocked) == 0 {
+		return nil
+	}
+	return writeZLMIniKeys(iniPath, blocked)
+}
+
+func writeZLMIniKeys(iniPath string, kv map[string]string) error {
+	raw, err := os.ReadFile(iniPath)
+	if err != nil {
+		return err
+	}
+	text := string(raw)
+	for k, v := range kv {
+		sec, key := k, k
+		if i := strings.Index(k, "."); i > 0 {
+			sec, key = k[:i], k[i+1:]
+		}
+		next, ok := replaceINIKey(text, sec, key, v)
+		if !ok {
+			next = appendINIKey(text, sec, key, v)
+		}
+		text = next
+	}
+	return os.WriteFile(iniPath, []byte(text), 0o644)
+}
+
+func replaceINIKey(text, section, key, value string) (string, bool) {
+	lines := strings.Split(text, "\n")
+	sec := "[" + section + "]"
+	in := false
+	for i, line := range lines {
+		trim := strings.TrimSpace(line)
+		if strings.HasPrefix(trim, "[") && strings.HasSuffix(trim, "]") {
+			in = strings.EqualFold(trim, sec)
+			continue
+		}
+		if !in || trim == "" || strings.HasPrefix(trim, "#") || strings.HasPrefix(trim, ";") {
+			continue
+		}
+		name, _, ok := strings.Cut(trim, "=")
+		if !ok || !strings.EqualFold(strings.TrimSpace(name), key) {
+			continue
+		}
+		indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+		lines[i] = indent + key + "=" + value
+		return strings.Join(lines, "\n"), true
+	}
+	return text, false
+}
+
+func appendINIKey(text, section, key, value string) string {
+	block := "[" + section + "]\n" + key + "=" + value + "\n"
+	if strings.TrimSpace(text) == "" {
+		return block
+	}
+	sec := "[" + section + "]"
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		if !strings.EqualFold(strings.TrimSpace(line), sec) {
+			continue
+		}
+		insert := i + 1
+		out := make([]string, 0, len(lines)+1)
+		out = append(out, lines[:insert]...)
+		out = append(out, key+"="+value)
+		out = append(out, lines[insert:]...)
+		return strings.Join(out, "\n")
+	}
+	if !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
+	return text + "\n" + block
+}
+
+func applyLocalFFmpegBin(nodeID string, kv map[string]string) {
+	bin := ""
+	for k, v := range kv {
+		if strings.EqualFold(strings.TrimSpace(k), "ffmpeg.bin") {
+			bin = strings.TrimSpace(v)
+			break
+		}
+	}
+	if bin == "" {
+		return
+	}
+	ffmpegBin = ""
+	if config.C == nil {
+		return
+	}
+	config.C.Basic.FFmpeg = bin
+	for i := range config.C.Nodes {
+		if nodeID == "" || config.C.Nodes[i].ID == nodeID {
+			config.C.Nodes[i].FFmpeg = bin
+		}
 	}
 }

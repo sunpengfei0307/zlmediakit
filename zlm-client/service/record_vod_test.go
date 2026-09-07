@@ -591,6 +591,75 @@ func TestAttachVODMarksKeepsRegistryWhenMediaListEmpty(t *testing.T) {
 	}
 }
 
+func TestDeleteRecordFileRemovesVODSidecarDir(t *testing.T) {
+	root := t.TempDir()
+	mp4Dir := filepath.Join(root, "mp4", "record", "live", "cam")
+	if err := os.MkdirAll(mp4Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mp4 := filepath.Join(mp4Dir, "a.mp4")
+	if err := os.WriteFile(mp4, []byte("mp4"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	vodDir := filepath.Join(root, "vod", "clip")
+	if err := os.MkdirAll(vodDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vodDir, "init.mp4"), []byte("init"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	keepLive := filepath.Join(root, "live", "cam", "init.mp4")
+	if err := os.MkdirAll(filepath.Dir(keepLive), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keepLive, []byte("live"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var closed url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/close_streams") {
+			_ = r.ParseForm()
+			closed = cloneValues(r.PostForm)
+			_, _ = w.Write([]byte(`{"code":0,"count_closed":1}`))
+			return
+		}
+		t.Fatalf("unexpected api %s", r.URL.Path)
+	}))
+	defer srv.Close()
+
+	withTestNode(t, config.Node{
+		ID: "node-1", Root: root, WWW: root, MP4Save: filepath.Join(root, "mp4"), API: srv.URL,
+	})
+	h := &Hub{audit: &recordingAudit{}, zlm: &zlmClient{http: srv.Client()}}
+	h.rememberVODLoad("node-1", "mp4/record/live/cam/a.mp4", "__defaultVhost__", "vod", "clip")
+
+	got := h.RecordVODOperation("node-1", "admin", "deleteRecordFile", url.Values{
+		"file_path": {"mp4/record/live/cam/a.mp4"},
+	})
+	if asFloat(got["code"]) != 0 {
+		t.Fatalf("delete rejected: %+v", got)
+	}
+	if _, err := os.Stat(mp4); !os.IsNotExist(err) {
+		t.Fatalf("source mp4 still exists: %v", err)
+	}
+	if _, err := os.Stat(vodDir); !os.IsNotExist(err) {
+		t.Fatalf("vod sidecar dir still exists: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "vod")); !os.IsNotExist(err) {
+		t.Fatalf("empty vod app dir still exists: %v", err)
+	}
+	if _, err := os.Stat(keepLive); err != nil {
+		t.Fatalf("live dir must stay: %v", err)
+	}
+	if closed.Get("app") != "vod" || closed.Get("stream") != "clip" {
+		t.Fatalf("close_streams=%v", closed)
+	}
+	if _, ok := h.lookupVODLoad("node-1", "mp4/record/live/cam/a.mp4"); ok {
+		t.Fatal("vod registry still has deleted file")
+	}
+}
+
 func TestDeleteRecordFileRemovesSandboxedMP4(t *testing.T) {
 	root := t.TempDir()
 	mp4 := filepath.Join(root, "keep-me.mp4")
